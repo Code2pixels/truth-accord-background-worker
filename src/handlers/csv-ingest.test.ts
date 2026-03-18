@@ -2,10 +2,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { csvIngestHandler } from './csv-ingest.ts'
 
-test('csvIngestHandler has correct type', () => {
+void test('csvIngestHandler has correct type', () => {
   assert.equal(csvIngestHandler.type, 'csv_ingest')
 })
 
-test('csvIngestHandler has a run function', () => {
+void test('csvIngestHandler has a run function', () => {
   assert.equal(typeof csvIngestHandler.run, 'function')
 })

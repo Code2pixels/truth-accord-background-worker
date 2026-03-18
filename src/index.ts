@@ -1,4 +1,3 @@
-import { migrate } from './db/migrate.ts'
 import { buildExecutor } from './worker/executor.ts'
 import { buildReaper } from './worker/reaper.ts'
 import { buildScheduler } from './worker/scheduler.ts'
@@ -21,9 +20,6 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  console.log('Running migrations...')
-  await migrate()
-
   const executor = buildExecutor(registry, {
     concurrency: 5,
     onError: (id, err) => console.error(`Job ${id} failed:`, err.message),
@@ -38,7 +34,7 @@ async function main(): Promise<void> {
 
   console.log('Worker started.')
 
-  async function shutdown(signal: string): Promise<void> {
+  function shutdown(signal: string): void {
     console.log(`\nReceived ${signal}, shutting down...`)
     executor.stop()
     reaper.stop()
@@ -46,8 +42,8 @@ async function main(): Promise<void> {
     process.exit(0)
   }
 
-  process.on('SIGTERM', () => void shutdown('SIGTERM'))
-  process.on('SIGINT', () => void shutdown('SIGINT'))
+  process.on('SIGTERM', () => { shutdown('SIGTERM') })
+  process.on('SIGINT', () => { shutdown('SIGINT') })
 }
 
 main().catch((err: unknown) => {

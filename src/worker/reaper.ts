@@ -39,9 +39,9 @@ export function buildReaper(options: ReaperOptions = {}): Reaper {
       } catch (err) {
         console.error('Reaper error:', err)
       }
-      if (running) timer = setTimeout(tick, REAPER_INTERVAL_MS)
+      if (running) timer = setTimeout(() => { void tick() }, REAPER_INTERVAL_MS)
     }
-    timer = setTimeout(tick, REAPER_INTERVAL_MS)
+    timer = setTimeout(() => { void tick() }, REAPER_INTERVAL_MS)
   }
 
   function stop(): void {

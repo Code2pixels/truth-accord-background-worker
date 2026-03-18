@@ -23,8 +23,8 @@ export function buildScheduler(): Scheduler {
   }
 
   function registerSchedule(schedule: ScheduleRow): void {
-    const task = cron.schedule(schedule.cron, async () => {
-      await fireSchedule(schedule)
+    const task = cron.schedule(schedule.cron, () => {
+      void fireSchedule(schedule)
     })
     tasks.set(schedule.id, task)
   }

@@ -3,14 +3,15 @@ import assert from 'node:assert/strict'
 import { buildExecutor } from './executor.ts'
 import type { HandlerRegistry, JobPayload } from '../types/jobs.ts'
 
-test('executor calls the correct handler for a job type', async () => {
+void test('executor calls the correct handler for a job type', async () => {
   const calls: string[] = []
 
   const registry: HandlerRegistry = {
     scrape_url: {
       type: 'scrape_url',
-      run: async (payload: JobPayload['scrape_url']) => {
+      run: (payload: JobPayload['scrape_url']): Promise<void> => {
         calls.push(payload.url)
+        return Promise.resolve()
       },
     },
   }
@@ -35,13 +36,13 @@ test('executor calls the correct handler for a job type', async () => {
   assert.deepEqual(calls, ['https://example.com'])
 })
 
-test('executor records error when handler throws', async () => {
+void test('executor records error when handler throws', async () => {
   const errors: string[] = []
 
   const registry: HandlerRegistry = {
     scrape_url: {
       type: 'scrape_url',
-      run: async () => {
+      run: (): Promise<void> => {
         throw new Error('network timeout')
       },
     },

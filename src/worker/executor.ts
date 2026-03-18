@@ -1,6 +1,6 @@
 import { pool } from '../db/client.ts'
 import { backoffDelay } from '../types/jobs.ts'
-import type { HandlerRegistry, JobRow, JobType } from '../types/jobs.ts'
+import type { HandlerRegistry, JobRow } from '../types/jobs.ts'
 
 const POLL_INTERVAL_MS = 5_000
 const BATCH_SIZE = 10
@@ -25,7 +25,7 @@ export function buildExecutor(
   let timer: NodeJS.Timeout | null = null
 
   async function dispatch(job: JobRow): Promise<void> {
-    const handler = registry[job.type as JobType]
+    const handler = registry[job.type]
     if (!handler) {
       const noHandlerErr = new Error(`No handler for job type: ${job.type}`)
       try {
@@ -57,7 +57,7 @@ export function buildExecutor(
 
   async function poll(): Promise<void> {
     const client = await pool.connect()
-    let jobs: JobRow[] = []
+    let jobs: JobRow[]
 
     try {
       await client.query('BEGIN')
@@ -106,9 +106,9 @@ export function buildExecutor(
       } catch (err) {
         console.error('Executor poll error:', err)
       }
-      if (running) timer = setTimeout(tick, POLL_INTERVAL_MS)
+      if (running) timer = setTimeout(() => { void tick() }, POLL_INTERVAL_MS)
     }
-    timer = setTimeout(tick, 0)
+    timer = setTimeout(() => { void tick() }, 0)
   }
 
   function stop(): void {
