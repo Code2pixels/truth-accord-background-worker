@@ -1,8 +1,11 @@
 import { Pool } from 'pg'
 
-// DATABASE_URL is required at runtime; the pool will fail on first use if not set
+const url = process.env['DATABASE_URL'] ?? ''
+const isLocal = url.includes('localhost') || url.includes('127.0.0.1')
+
 export const pool = new Pool({
-  connectionString: process.env['DATABASE_URL'],
+  connectionString: url,
+  ssl: isLocal ? false : { rejectUnauthorized: false },
 })
 
 pool.on('error', (err: Error) => {

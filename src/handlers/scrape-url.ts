@@ -1,3 +1,4 @@
+import { insertArticle, extractHtmlMeta } from '../lib/articles.ts'
 import type { JobHandler } from '../types/jobs.ts'
 
 export const scrapeUrlHandler: JobHandler<'scrape_url'> = {
@@ -13,21 +14,20 @@ export const scrapeUrlHandler: JobHandler<'scrape_url'> = {
     }
 
     const html = await response.text()
+    const article = extractHtmlMeta(html, payload.url)
 
     if (payload.selector) {
-      // Extract text content of the first element matching the selector pattern
-      // For full DOM querying use the browser_scrape handler instead
       const tagMatch = payload.selector.match(/^([a-z][a-z0-9]*)$/i)
       if (tagMatch) {
         const tag = tagMatch[1]
         const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i')
         const match = html.match(regex)
         const text = match ? match[1]?.replace(/<[^>]+>/g, '').trim() : ''
-        console.log(`[scrape_url] ${payload.url} selector="${payload.selector}": ${text?.slice(0, 200)}`)
-        return
+        if (text && !article.summary) article.summary = text.slice(0, 1000)
       }
     }
 
-    console.log(`[scrape_url] ${payload.url}: fetched ${html.length} bytes`)
+    const id = await insertArticle(article)
+    console.log(`[scrape_url] inserted article ${id} for ${payload.url}`)
   },
 }

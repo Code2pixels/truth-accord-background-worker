@@ -1,10 +1,12 @@
 import { chromium } from 'playwright'
+import { insertArticle } from '../lib/articles.ts'
+import type { ArticleInsert } from '../lib/articles.ts'
 import type { JobHandler } from '../types/jobs.ts'
 
 export const browserScrapeHandler: JobHandler<'browser_scrape'> = {
   type: 'browser_scrape',
   maxAttempts: 2,
-  timeoutMs: 2 * 60_000, // 2 minutes
+  timeoutMs: 2 * 60_000,
 
   async run(payload) {
     const browser = await chromium.launch({ headless: true })
@@ -17,11 +19,24 @@ export const browserScrapeHandler: JobHandler<'browser_scrape'> = {
         await page.waitForSelector(payload.waitFor, { timeout: 10_000 })
       }
 
-      const content = await page.content()
-      const textContent = await page.evaluate(() => document.body.innerText)
+      const meta = await page.evaluate((): Omit<ArticleInsert, 'url'> => {
+        const getMeta = (name: string): string =>
+          (document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement | null)?.content?.trim() ?? ''
 
-      console.log(`[browser_scrape] ${payload.url}: ${content.length} bytes HTML`)
-      console.log(`[browser_scrape] text preview: ${textContent.slice(0, 300)}`)
+        const origin = window.location.origin
+        const hostname = window.location.hostname
+
+        return {
+          title: document.title.trim(),
+          summary: getMeta('description'),
+          authored_by: getMeta('author') || hostname,
+          source: hostname,
+          source_url: origin,
+        }
+      })
+
+      const id = await insertArticle({ url: payload.url, ...meta })
+      console.log(`[browser_scrape] inserted article ${id} for ${payload.url}`)
     } finally {
       await browser.close()
     }
