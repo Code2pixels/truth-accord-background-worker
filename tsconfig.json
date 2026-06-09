@@ -1,12 +1,13 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node10",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
+    "noEmit": true,
     "esModuleInterop": true,
     "outDir": "dist",
     "rootDir": "src"
