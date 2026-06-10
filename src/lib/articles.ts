@@ -7,14 +7,16 @@ export interface ArticleInsert {
   authored_by: string
   source: string
   source_url: string
+  status?: string
 }
 
 export async function insertArticle(article: ArticleInsert): Promise<string> {
+  const status = article.status ?? 'pending'
   const { rows } = await pool.query<{ id: string }>(`
-    INSERT INTO articles.records (url, title, summary, authored_by, source, source_url)
-    VALUES ($1, $2, $3, $4, $5, $6)
+    INSERT INTO articles.records (url, title, summary, authored_by, source, source_url, status)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
     RETURNING id
-  `, [article.url, article.title, article.summary, article.authored_by, article.source, article.source_url])
+  `, [article.url, article.title, article.summary, article.authored_by, article.source, article.source_url, status])
 
   return rows[0]!.id
 }

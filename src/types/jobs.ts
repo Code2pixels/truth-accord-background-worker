@@ -1,5 +1,5 @@
 export interface JobPayload {
-  scrape_url: { url: string; selector?: string }
+  scrape_url: { url: string; selector?: string; status?: string }
   rss_fetch: { feedUrl: string }
   csv_ingest: { filePath: string; delimiter?: string }
   browser_scrape: { url: string; waitFor?: string }

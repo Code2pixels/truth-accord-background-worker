@@ -27,7 +27,7 @@ export const scrapeUrlHandler: JobHandler<'scrape_url'> = {
       }
     }
 
-    const id = await insertArticle(article)
+    const id = await insertArticle({ ...article, status: payload.status })
     console.log(`[scrape_url] inserted article ${id} for ${payload.url}`)
   },
 }
