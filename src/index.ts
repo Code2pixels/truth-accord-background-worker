@@ -13,6 +13,8 @@ import { TruthfulnessService } from './services/truthfulness/truthfulness.servic
 import { ArticlesService } from './services/articles.service.ts'
 import { ScrapeWorker } from './workers/scrape-worker.ts'
 import { WaybackRecheckWorker } from './workers/wayback-recheck.ts'
+import { RssFeedWorker } from './workers/rss-feed.worker.ts'
+import { RssSourcesRepository } from './repositories/rss-sources.repository.ts'
 
 async function main(): Promise<void> {
   if (!process.env['DATABASE_URL']) {
@@ -24,6 +26,7 @@ async function main(): Promise<void> {
 
   // Repositories
   const workerJobsRepo = new WorkerJobsRepository()
+  const rssSourcesRepo = new RssSourcesRepository()
   const articlesRepo = new ArticlesRepository()
   const truthfulnessScoresRepo = new ArticleTruthfulnessScoresRepository()
   const similarArticlesRepo = new SimilarArticlesRepository()
@@ -45,8 +48,11 @@ async function main(): Promise<void> {
   )
   const waybackRecheckWorker = new WaybackRecheckWorker(workerJobsRepo, wayback)
 
+  const rssFeedWorker = new RssFeedWorker(rssSourcesRepo, workerJobsRepo)
+
   scrapeWorker.start(pollIntervalMs)
   waybackRecheckWorker.schedule()
+  rssFeedWorker.schedule()
 
   console.log('[main] Background worker running')
 

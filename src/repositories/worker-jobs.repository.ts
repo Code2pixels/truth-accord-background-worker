@@ -42,6 +42,18 @@ export class WorkerJobsRepository {
     return toScrapeJob(row)
   }
 
+  async createIfNew(url: string, urlHash: string, searchTerm?: string | null): Promise<boolean> {
+    const payload = JSON.stringify({ url, search_term: searchTerm ?? null })
+    const row = await queryOne<{ id: string }>(
+      `INSERT INTO worker.jobs (type, payload, url_hash)
+       VALUES ('scrape_url', $1, $2)
+       ON CONFLICT (url_hash) DO NOTHING
+       RETURNING id`,
+      [payload, urlHash],
+    )
+    return row !== null
+  }
+
   async updateStatus(id: string, status: 'completed' | 'failed'): Promise<void> {
     await query(
       `UPDATE worker.jobs SET status = $1 WHERE id = $2`,
