@@ -4,17 +4,43 @@ import cron from 'node-cron'
 import type { RssSourcesRepository } from '../repositories/rss-sources.repository.ts'
 import type { WorkerJobsRepository } from '../repositories/worker-jobs.repository.ts'
 
-const parser = new XMLParser({ ignoreAttributes: false })
+const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
 
-interface RssItem {
-  link?: string
+interface FeedItem {
+  link?: string | { '#text': string } | Array<{ '@_rel'?: string; '@_href'?: string } | string>
   guid?: string | { '#text': string }
+  id?: string
 }
 
-function extractItemUrl(item: RssItem): string | null {
-  if (typeof item.link === 'string' && item.link.startsWith('http')) return item.link
-  const guid = typeof item.guid === 'string' ? item.guid : item.guid?.['#text']
-  if (guid?.startsWith('http')) return guid
+function extractUrl(item: FeedItem): string | null {
+  const { link, guid, id } = item
+
+  // Atom: link is an array of objects with @_rel and @_href
+  if (Array.isArray(link)) {
+    const alternate = link.find(
+      (l): l is { '@_rel'?: string; '@_href'?: string } =>
+        typeof l === 'object' && (!l['@_rel'] || l['@_rel'] === 'alternate'),
+    )
+    const href = alternate?.['@_href']
+    if (href?.startsWith('http')) return href
+  }
+
+  // Atom: link is a single object
+  if (typeof link === 'object' && link !== null && !Array.isArray(link)) {
+    const href = (link as { '@_href'?: string })['@_href']
+    if (href?.startsWith('http')) return href
+  }
+
+  // RSS: link is a plain string
+  if (typeof link === 'string' && link.startsWith('http')) return link
+
+  // RSS: guid is a URL
+  const guidStr = typeof guid === 'string' ? guid : guid?.['#text']
+  if (guidStr?.startsWith('http')) return guidStr
+
+  // Atom: id is a URL
+  if (typeof id === 'string' && id.startsWith('http')) return id
+
   return null
 }
 
@@ -22,7 +48,6 @@ function normalizeUrl(raw: string): string {
   try {
     const u = new URL(raw)
     u.hash = ''
-    // strip common tracking params
     for (const p of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content']) {
       u.searchParams.delete(p)
     }
@@ -36,7 +61,25 @@ function hashUrl(url: string): string {
   return createHash('sha256').update(url).digest('hex')
 }
 
-async function fetchFeed(rssUrl: string): Promise<RssItem[]> {
+function extractItems(parsed: Record<string, unknown>): FeedItem[] {
+  // RSS 2.0
+  const channel = (parsed['rss'] as Record<string, unknown> | undefined)?.['channel'] as Record<string, unknown> | undefined
+  if (channel) {
+    const items = channel['item']
+    if (items) return (Array.isArray(items) ? items : [items]) as FeedItem[]
+  }
+
+  // Atom
+  const feed = parsed['feed'] as Record<string, unknown> | undefined
+  if (feed) {
+    const entries = feed['entry']
+    if (entries) return (Array.isArray(entries) ? entries : [entries]) as FeedItem[]
+  }
+
+  return []
+}
+
+async function fetchFeed(rssUrl: string): Promise<FeedItem[]> {
   const res = await fetch(rssUrl, {
     headers: { 'User-Agent': 'TruthAccord-RSS-Reader/1.0' },
     signal: AbortSignal.timeout(15_000),
@@ -44,10 +87,7 @@ async function fetchFeed(rssUrl: string): Promise<RssItem[]> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const xml = await res.text()
   const parsed = parser.parse(xml) as Record<string, unknown>
-  const channel = (parsed['rss'] as Record<string, unknown> | undefined)?.['channel'] as Record<string, unknown> | undefined
-  const items = channel?.['item']
-  if (!items) return []
-  return (Array.isArray(items) ? items : [items]) as RssItem[]
+  return extractItems(parsed)
 }
 
 export class RssFeedWorker {
@@ -76,18 +116,24 @@ export class RssFeedWorker {
         const items = await fetchFeed(source.rss_url)
         let queued = 0
         let skipped = 0
+        let failed = 0
 
         for (const item of items) {
-          const raw = extractItemUrl(item)
+          const raw = extractUrl(item)
           if (!raw) continue
           const url = normalizeUrl(raw)
           const hash = hashUrl(url)
-          const inserted = await this.workerJobsRepo.createIfNew(url, hash)
-          if (inserted) queued++
-          else skipped++
+          try {
+            const inserted = await this.workerJobsRepo.createIfNew(url, hash)
+            if (inserted) queued++
+            else skipped++
+          } catch (err) {
+            failed++
+            console.warn(`[RssFeedWorker] ${source.name}: failed to queue ${url}: ${err instanceof Error ? err.message : err}`)
+          }
         }
 
-        console.log(`[RssFeedWorker] ${source.name}: ${items.length} items — ${queued} queued, ${skipped} skipped`)
+        console.log(`[RssFeedWorker] ${source.name}: ${items.length} items — ${queued} queued, ${skipped} skipped${failed > 0 ? `, ${failed} failed` : ''}`)
         totalQueued += queued
         totalSkipped += skipped
       } catch (err) {
