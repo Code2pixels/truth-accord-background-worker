@@ -1,18 +1,18 @@
-import { buildExecutor } from './worker/executor.ts'
-import { buildReaper } from './worker/reaper.ts'
-import { buildScheduler } from './worker/scheduler.ts'
-import { scrapeUrlHandler } from './handlers/scrape-url.ts'
-import { rssFetchHandler } from './handlers/rss-fetch.ts'
-import { csvIngestHandler } from './handlers/csv-ingest.ts'
-import { browserScrapeHandler } from './handlers/browser-scrape.ts'
-import type { HandlerRegistry } from './types/jobs.ts'
-
-const registry: HandlerRegistry = {
-  scrape_url: scrapeUrlHandler,
-  rss_fetch: rssFetchHandler,
-  csv_ingest: csvIngestHandler,
-  browser_scrape: browserScrapeHandler,
-}
+import { pool } from './db/client.ts'
+import { WorkerJobsRepository } from './repositories/worker-jobs.repository.ts'
+import { ArticlesRepository } from './repositories/articles.repository.ts'
+import { ArticleTruthfulnessScoresRepository } from './repositories/article-truthfulness-scores.repository.ts'
+import { SimilarArticlesRepository } from './repositories/similar-articles.repository.ts'
+import { SourcesRepository } from './repositories/sources.repository.ts'
+import { StaticScraperService } from './services/scraper/static-scraper.service.ts'
+import { DynamicScraperService } from './services/scraper/dynamic-scraper.service.ts'
+import { ScraperService } from './services/scraper/scraper.service.ts'
+import { WaybackService } from './services/wayback/wayback.service.ts'
+import { ReferenceSitesCrawlService } from './services/truthfulness/reference-sites-crawl.service.ts'
+import { TruthfulnessService } from './services/truthfulness/truthfulness.service.ts'
+import { ArticlesService } from './services/articles.service.ts'
+import { ScrapeWorker } from './workers/scrape-worker.ts'
+import { WaybackRecheckWorker } from './workers/wayback-recheck.ts'
 
 async function main(): Promise<void> {
   if (!process.env['DATABASE_URL']) {
@@ -20,33 +20,49 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  const executor = buildExecutor(registry, {
-    concurrency: 5,
-    onError: (id, err) => console.error(`Job ${id} failed:`, err.message),
-  })
+  const pollIntervalMs = Number(process.env['QUEUE_POLL_INTERVAL_MS'] ?? 5_000)
 
-  const reaper = buildReaper({ defaultTimeoutMs: 10 * 60 * 1000 })
-  const scheduler = buildScheduler()
+  // Repositories
+  const workerJobsRepo = new WorkerJobsRepository()
+  const articlesRepo = new ArticlesRepository()
+  const truthfulnessScoresRepo = new ArticleTruthfulnessScoresRepository()
+  const similarArticlesRepo = new SimilarArticlesRepository()
+  const sourcesRepo = new SourcesRepository()
 
-  await scheduler.start()
-  reaper.start()
-  executor.start()
+  // Services
+  const staticScraper = new StaticScraperService()
+  const dynamicScraper = new DynamicScraperService()
+  const scraper = new ScraperService(staticScraper, dynamicScraper)
+  const wayback = new WaybackService()
+  const referenceSitesCrawl = new ReferenceSitesCrawlService()
+  const truthfulness = new TruthfulnessService(referenceSitesCrawl)
+  const articles = new ArticlesService(articlesRepo)
 
-  console.log('Worker started.')
+  // Workers
+  const scrapeWorker = new ScrapeWorker(
+    scraper, wayback, articles, workerJobsRepo, truthfulnessScoresRepo,
+    similarArticlesRepo, truthfulness, referenceSitesCrawl, sourcesRepo,
+  )
+  const waybackRecheckWorker = new WaybackRecheckWorker(workerJobsRepo, wayback)
 
-  function shutdown(signal: string): void {
-    console.log(`\nReceived ${signal}, shutting down...`)
-    executor.stop()
-    reaper.stop()
-    scheduler.stop()
+  scrapeWorker.start(pollIntervalMs)
+  waybackRecheckWorker.schedule()
+
+  console.log('[main] Background worker running')
+
+  async function shutdown(): Promise<void> {
+    console.log('[main] Shutting down...')
+    scrapeWorker.stop()
+    await dynamicScraper.destroy()
+    await pool.end()
     process.exit(0)
   }
 
-  process.on('SIGTERM', () => { shutdown('SIGTERM') })
-  process.on('SIGINT', () => { shutdown('SIGINT') })
+  process.on('SIGTERM', () => void shutdown())
+  process.on('SIGINT', () => void shutdown())
 }
 
 main().catch((err: unknown) => {
-  console.error('Worker failed to start:', err)
+  console.error('[main] Fatal error:', err)
   process.exit(1)
 })
