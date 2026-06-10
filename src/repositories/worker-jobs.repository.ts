@@ -47,7 +47,7 @@ export class WorkerJobsRepository {
     const row = await queryOne<{ id: string }>(
       `INSERT INTO worker.jobs (type, payload, url_hash)
        VALUES ('scrape_url', $1, $2)
-       ON CONFLICT (url_hash) DO NOTHING
+       ON CONFLICT (url_hash) WHERE url_hash IS NOT NULL DO NOTHING
        RETURNING id`,
       [payload, urlHash],
     )
