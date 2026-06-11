@@ -90,6 +90,8 @@ async function fetchFeed(rssUrl: string): Promise<FeedItem[]> {
   return extractItems(parsed)
 }
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
 export class RssFeedWorker {
   constructor(
     private readonly rssSourcesRepo: RssSourcesRepository,
@@ -104,41 +106,49 @@ export class RssFeedWorker {
   }
 
   async run(): Promise<void> {
+    const batchSize = Number(process.env['RSS_FEED_BATCH_SIZE'] ?? 3)
+    const batchDelayMs = Number(process.env['RSS_FEED_BATCH_DELAY_MS'] ?? 5_000)
+
     console.log('[RssFeedWorker] Starting feed poll')
     const sources = await this.rssSourcesRepo.findAllActive()
-    console.log(`[RssFeedWorker] ${sources.length} active source(s)`)
+    console.log(`[RssFeedWorker] ${sources.length} active source(s), batch size: ${batchSize}, delay: ${batchDelayMs}ms`)
 
     let totalQueued = 0
     let totalSkipped = 0
 
-    for (const source of sources) {
-      try {
-        const items = await fetchFeed(source.rss_url)
-        let queued = 0
-        let skipped = 0
-        let failed = 0
+    for (let i = 0; i < sources.length; i += batchSize) {
+      if (i > 0) await sleep(batchDelayMs)
 
-        for (const item of items) {
-          const raw = extractUrl(item)
-          if (!raw) continue
-          const url = normalizeUrl(raw)
-          const hash = hashUrl(url)
-          try {
-            const inserted = await this.workerJobsRepo.createIfNew(url, hash)
-            if (inserted) queued++
-            else skipped++
-          } catch (err) {
-            failed++
-            console.warn(`[RssFeedWorker] ${source.name}: failed to queue ${url}: ${err instanceof Error ? err.message : err}`)
+      const batch = sources.slice(i, i + batchSize)
+      await Promise.all(batch.map(async (source) => {
+        try {
+          const items = await fetchFeed(source.rss_url)
+          let queued = 0
+          let skipped = 0
+          let failed = 0
+
+          for (const item of items) {
+            const raw = extractUrl(item)
+            if (!raw) continue
+            const url = normalizeUrl(raw)
+            const hash = hashUrl(url)
+            try {
+              const inserted = await this.workerJobsRepo.createIfNew(url, hash)
+              if (inserted) queued++
+              else skipped++
+            } catch (err) {
+              failed++
+              console.warn(`[RssFeedWorker] ${source.name}: failed to queue ${url}: ${err instanceof Error ? err.message : err}`)
+            }
           }
-        }
 
-        console.log(`[RssFeedWorker] ${source.name}: ${items.length} items — ${queued} queued, ${skipped} skipped${failed > 0 ? `, ${failed} failed` : ''}`)
-        totalQueued += queued
-        totalSkipped += skipped
-      } catch (err) {
-        console.error(`[RssFeedWorker] Failed to poll ${source.name} (${source.rss_url}): ${err instanceof Error ? err.message : err}`)
-      }
+          console.log(`[RssFeedWorker] ${source.name}: ${items.length} items — ${queued} queued, ${skipped} skipped${failed > 0 ? `, ${failed} failed` : ''}`)
+          totalQueued += queued
+          totalSkipped += skipped
+        } catch (err) {
+          console.error(`[RssFeedWorker] Failed to poll ${source.name} (${source.rss_url}): ${err instanceof Error ? err.message : err}`)
+        }
+      }))
     }
 
     console.log(`[RssFeedWorker] Done — total queued: ${totalQueued}, skipped: ${totalSkipped}`)
