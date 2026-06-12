@@ -2,14 +2,29 @@ import type { WaybackSnapshot, WaybackAvailabilityResponse, CdxRecord } from './
 
 const AVAILABILITY_API = 'https://archive.org/wayback/available'
 const CDX_API = 'https://web.archive.org/cdx/search/cdx'
+const MAX_RETRIES = 3
+const RETRY_BASE_MS = 1_000
+
+async function fetchWithRetry(url: string, retries = MAX_RETRIES): Promise<Response> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await globalThis.fetch(url, { signal: AbortSignal.timeout(15_000) })
+    } catch (err) {
+      const isLast = attempt === retries
+      if (isLast) throw err
+      const delay = RETRY_BASE_MS * 2 ** attempt
+      console.warn(`[WaybackService] Fetch failed (attempt ${attempt + 1}/${retries + 1}), retrying in ${delay}ms:`, err instanceof Error ? err.message : err)
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
+  }
+  throw new Error('unreachable')
+}
 
 export class WaybackService {
   async getLatestSnapshot(url: string): Promise<WaybackSnapshot | null> {
     try {
       const params = new URLSearchParams({ url })
-      const res = await globalThis.fetch(`${AVAILABILITY_API}?${params}`, {
-        signal: AbortSignal.timeout(10_000),
-      })
+      const res = await fetchWithRetry(`${AVAILABILITY_API}?${params}`)
       const data = await res.json() as WaybackAvailabilityResponse
       const closest = data.archived_snapshots?.closest
       if (!closest?.available) return null
@@ -31,7 +46,7 @@ export class WaybackService {
         fl: 'urlkey,timestamp,original,mimetype,statuscode,digest,length',
         filter: 'statuscode:200', from: fromDate, to: toDate, limit: '1', collapse: 'timestamp:8',
       })
-      const res = await globalThis.fetch(`${CDX_API}?${params}`, { signal: AbortSignal.timeout(10_000) })
+      const res = await fetchWithRetry(`${CDX_API}?${params}`)
       const rows = await res.json() as string[][]
       if (!Array.isArray(rows) || rows.length < 2) return null
       const [headers, firstRecord] = rows

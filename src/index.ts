@@ -66,6 +66,18 @@ async function main(): Promise<void> {
 
   process.on('SIGTERM', () => void shutdown())
   process.on('SIGINT', () => void shutdown())
+
+  // undici throws AssertionError inside TLS socket event handlers when the remote
+  // server closes the connection mid-response. These bypass async/await catch blocks
+  // and would otherwise crash the process.
+  process.on('uncaughtException', (err) => {
+    if ((err as NodeJS.ErrnoException).code === 'ERR_ASSERTION') {
+      console.warn('[main] Swallowed undici connection-close AssertionError:', err.message)
+      return
+    }
+    console.error('[main] Uncaught exception — shutting down:', err)
+    void shutdown()
+  })
 }
 
 main().catch((err: unknown) => {
