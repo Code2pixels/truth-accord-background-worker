@@ -6,6 +6,9 @@ const isLocal = url.includes('localhost') || url.includes('127.0.0.1')
 export const pool = new Pool({
   connectionString: url,
   ssl: isLocal ? false : { rejectUnauthorized: false },
+  idleTimeoutMillis: 60_000,  // evict idle clients after 60s (before Render's proxy kills them)
+  connectionTimeoutMillis: 10_000,
+  keepAlive: true,
 })
 
 pool.on('error', (err: Error) => {
