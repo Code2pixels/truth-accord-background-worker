@@ -141,7 +141,10 @@ export class ScrapeWorker {
       console.log(`[Job ${id}] [6/7] Crawling reference feeds for similar articles...`)
       console.log(`[Job ${id}]       keywords extracted from: "${title.slice(0, 80)}${title.length > 80 ? '…' : ''}"`)
       const matchResult = await this.referenceSitesCrawl.getMatchingArticles(title, meta)
-      const itemsToSave = matchResult.items.filter((it) => (it.similarityScore ?? 0) >= MIN_SIMILARITY_TO_SAVE)
+      const normalizedSourceDomain = sourceDomain.replace(/^www\./, '')
+      const itemsToSave = matchResult.items.filter((it) =>
+        (it.similarityScore ?? 0) >= MIN_SIMILARITY_TO_SAVE && it.sourceDomain !== normalizedSourceDomain,
+      )
       console.log(`[Job ${id}]       matches found: ${matchResult.count}, above threshold: ${itemsToSave.length}`)
       if (itemsToSave.length > 0) {
         for (const it of itemsToSave) {
