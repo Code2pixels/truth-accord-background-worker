@@ -3,13 +3,23 @@ import { XMLParser } from 'fast-xml-parser'
 import cron from 'node-cron'
 import type { RssSourcesRepository } from '../repositories/rss-sources.repository.ts'
 import type { WorkerJobsRepository } from '../repositories/worker-jobs.repository.ts'
+import { isAllowedTopic } from '../services/topic-classifier.ts'
 
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
 
 interface FeedItem {
+  title?: string | { '#text': string }
+  description?: string | { '#text': string }
+  summary?: string | { '#text': string }
   link?: string | { '#text': string } | Array<{ '@_rel'?: string; '@_href'?: string } | string>
   guid?: string | { '#text': string }
   id?: string
+}
+
+function extractText(val: string | { '#text': string } | undefined): string {
+  if (!val) return ''
+  if (typeof val === 'string') return val
+  return val['#text'] ?? ''
 }
 
 function extractUrl(item: FeedItem): string | null {
@@ -130,6 +140,8 @@ export class RssFeedWorker {
           for (const item of items) {
             const raw = extractUrl(item)
             if (!raw) continue
+            const topicText = `${extractText(item.title)} ${extractText(item.description ?? item.summary)}`
+            if (!isAllowedTopic(topicText)) continue
             const url = normalizeUrl(raw)
             const hash = hashUrl(url)
             try {

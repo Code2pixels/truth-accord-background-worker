@@ -15,6 +15,7 @@ import { ScrapeWorker } from './workers/scrape-worker.ts'
 import { WaybackRecheckWorker } from './workers/wayback-recheck.ts'
 import { RssFeedWorker } from './workers/rss-feed.worker.ts'
 import { RssSourcesRepository } from './repositories/rss-sources.repository.ts'
+import { ReferenceSitesRepository } from './repositories/reference-sites.repository.ts'
 
 async function main(): Promise<void> {
   if (!process.env['DATABASE_URL']) {
@@ -31,13 +32,14 @@ async function main(): Promise<void> {
   const truthfulnessScoresRepo = new ArticleTruthfulnessScoresRepository()
   const similarArticlesRepo = new SimilarArticlesRepository()
   const sourcesRepo = new SourcesRepository()
+  const referenceSitesRepo = new ReferenceSitesRepository()
 
   // Services
   const staticScraper = new StaticScraperService()
   const dynamicScraper = new DynamicScraperService()
   const scraper = new ScraperService(staticScraper, dynamicScraper)
   const wayback = new WaybackService()
-  const referenceSitesCrawl = new ReferenceSitesCrawlService()
+  const referenceSitesCrawl = new ReferenceSitesCrawlService(referenceSitesRepo)
   const truthfulness = new TruthfulnessService(referenceSitesCrawl)
   const articles = new ArticlesService(articlesRepo)
 

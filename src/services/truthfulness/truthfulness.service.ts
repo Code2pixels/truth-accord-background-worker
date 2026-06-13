@@ -1,4 +1,3 @@
-import { getReferenceTrustScore } from './reference-sites.const.ts'
 import type { ReferenceSitesCrawlService } from './reference-sites-crawl.service.ts'
 import type { TruthfulnessMetrics } from '../../types.ts'
 
@@ -23,9 +22,9 @@ export class TruthfulnessService {
         ? precomputedMatchCount
         : title || meta ? await this.referenceSitesCrawl.getMatchingArticleCount(title, meta) : 0
 
-    const factualAccuracy = this.scoreFactualAccuracy(input)
+    const factualAccuracy = await this.scoreFactualAccuracy(input)
     const sourceCitationQuality = this.scoreSourceCitationQuality(input, matchCount)
-    const biasIndicator = this.scoreBiasIndicator()
+    const biasIndicator = this.scoreBiasIndicator(input)
     const claimVerifiability = this.scoreClaimVerifiability(input)
     const languageQuality = this.scoreLanguageQuality(input)
     const overallTruthfulness = this.scoreOverall(factualAccuracy, sourceCitationQuality, biasIndicator, claimVerifiability, languageQuality)
@@ -33,11 +32,11 @@ export class TruthfulnessService {
     return { factualAccuracy, sourceCitationQuality, biasIndicator, claimVerifiability, languageQuality, overallTruthfulness }
   }
 
-  private scoreFactualAccuracy(input: TruthfulnessInput): number {
+  private async scoreFactualAccuracy(input: TruthfulnessInput): Promise<number> {
     const words = input.wordCount ?? 0
     const hasBody = words >= 100
     const hasMeta = Boolean(input.metaDescription?.trim())
-    const siteTrust = getReferenceTrustScore(input.sourceDomain)
+    const siteTrust = await this.referenceSitesCrawl.getTrustScore(input.sourceDomain)
     if (siteTrust != null) {
       let score = siteTrust
       if (hasBody && hasMeta) score = Math.min(1, score + 0.05)
@@ -62,7 +61,30 @@ export class TruthfulnessService {
     return Math.round(Math.min(1, score) * 100) / 100
   }
 
-  private scoreBiasIndicator(): number { return 0.2 }
+  private scoreBiasIndicator(input: TruthfulnessInput): number {
+    const text = [input.title, input.metaDescription, input.content].filter(Boolean).join(' ')
+    if (!text.trim()) return 0.2
+
+    const lower = text.toLowerCase()
+    let flags = 0
+
+    const patterns = [
+      'always', 'never', 'everyone', 'nobody', 'no one',
+      'i think', 'i believe', 'in my opinion',
+      'it\'s clear', 'it is clear', 'obviously', 'clearly', 'of course',
+      'radical', 'extremist', 'shameful', 'disgusting', 'outrageous',
+      'horrific', 'pathetic', 'best ever', 'worst ever',
+    ]
+
+    for (const p of patterns) {
+      if (lower.includes(p)) flags++
+    }
+
+    flags += Math.min((text.match(/!/g) ?? []).length, 3)
+    flags += Math.min((text.match(/\b[A-Z]{3,}\b/g) ?? []).length, 3)
+
+    return Math.round(Math.min(flags / 8, 1) * 100) / 100
+  }
 
   private scoreClaimVerifiability(input: TruthfulnessInput): number {
     const words = input.wordCount ?? 0

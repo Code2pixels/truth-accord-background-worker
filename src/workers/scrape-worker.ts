@@ -8,6 +8,7 @@ import type { TruthfulnessService } from '../services/truthfulness/truthfulness.
 import type { ReferenceSitesCrawlService } from '../services/truthfulness/reference-sites-crawl.service.ts'
 import type { SourcesRepository } from '../repositories/sources.repository.ts'
 import type { ScrapeJob } from '../types.ts'
+import { isAllowedTopic } from '../services/topic-classifier.ts'
 
 const MIN_SIMILARITY_TO_SAVE = 0.2
 
@@ -71,7 +72,7 @@ export class ScrapeWorker {
 
     try {
       // Step 1: Scrape
-      console.log(`[Job ${id}] [1/6] Fetching URL...`)
+      console.log(`[Job ${id}] [1/7] Fetching URL...`)
       let scraped = await this.scraper.scrape(url)
       const sourceDomain = new URL(url).hostname
       console.log(`[Job ${id}]       title:       ${scraped.title ?? '(none)'}`)
@@ -82,7 +83,7 @@ export class ScrapeWorker {
 
       // Step 2: Paywall / Wayback fallback
       if (scraped.paywallDetected) {
-        console.warn(`[Job ${id}] [2/6] Paywall detected — marking ${sourceDomain} and checking Wayback Machine...`)
+        console.warn(`[Job ${id}] [2/7] Paywall detected — marking ${sourceDomain} and checking Wayback Machine...`)
         await this.sourcesRepo.markPaywall(sourceDomain)
 
         const snapshot = await this.wayback.getLatestSnapshot(url)
@@ -101,15 +102,25 @@ export class ScrapeWorker {
           return
         }
       } else {
-        console.log(`[Job ${id}] [2/6] No paywall detected`)
+        console.log(`[Job ${id}] [2/7] No paywall detected`)
       }
 
       // Step 3: Ensure source domain is tracked
-      console.log(`[Job ${id}] [3/6] Ensuring source domain: ${sourceDomain}`)
+      console.log(`[Job ${id}] [3/7] Ensuring source domain: ${sourceDomain}`)
       await this.sourcesRepo.ensureExists(sourceDomain)
 
-      // Step 4: Upsert article
-      console.log(`[Job ${id}] [4/6] Upserting article record...`)
+      // Step 4: Topic filter
+      const topicText = [scraped.title, scraped.metaDescription, scraped.content].filter(Boolean).join(' ')
+      if (!isAllowedTopic(topicText)) {
+        console.log(`[Job ${id}] [4/7] Off-topic — skipping insert`)
+        await this.workerJobsRepo.updateStatus(id, 'completed')
+        console.log(`[Job ${id}] ── SKIPPED (off-topic) [${Date.now() - t0}ms] ──`)
+        return
+      }
+      console.log(`[Job ${id}] [4/7] Topic check passed`)
+
+      // Step 5: Upsert article
+      console.log(`[Job ${id}] [5/7] Upserting article record...`)
       const article = await this.articles.upsert({
         url: scraped.url,
         title: scraped.title,
@@ -124,10 +135,10 @@ export class ScrapeWorker {
       })
       console.log(`[Job ${id}]       article.id: ${article.id}`)
 
-      // Step 5: Reference site crawl for similar articles
+      // Step 6: Reference site crawl for similar articles
       const title = scraped.title?.trim() ?? ''
       const meta = scraped.metaDescription?.trim() ?? ''
-      console.log(`[Job ${id}] [5/6] Crawling reference feeds for similar articles...`)
+      console.log(`[Job ${id}] [6/7] Crawling reference feeds for similar articles...`)
       console.log(`[Job ${id}]       keywords extracted from: "${title.slice(0, 80)}${title.length > 80 ? '…' : ''}"`)
       const matchResult = await this.referenceSitesCrawl.getMatchingArticles(title, meta)
       const itemsToSave = matchResult.items.filter((it) => (it.similarityScore ?? 0) >= MIN_SIMILARITY_TO_SAVE)
@@ -138,8 +149,8 @@ export class ScrapeWorker {
         }
       }
 
-      // Step 6: Compute truthfulness scores
-      console.log(`[Job ${id}] [6/6] Computing truthfulness scores...`)
+      // Step 7: Compute truthfulness scores
+      console.log(`[Job ${id}] [7/7] Computing truthfulness scores...`)
       const truthfulnessMetrics = await this.truthfulness.computeScores({
         title: scraped.title,
         author: scraped.author,

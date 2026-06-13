@@ -1,5 +1,7 @@
 import { XMLParser } from 'fast-xml-parser'
-import { REFERENCE_SITES, STOP_WORDS } from '../../config/reference.config.ts'
+import { STOP_WORDS } from '../../config/reference.config.ts'
+import { isAllowedTopic } from '../topic-classifier.ts'
+import type { ReferenceSitesRepository, ReferenceSiteRecord } from '../../repositories/reference-sites.repository.ts'
 
 const MIN_WORD_LENGTH = 4
 const MIN_KEYWORD_MATCH = 2
@@ -15,22 +17,37 @@ export interface SimilarArticleItem {
 
 export class ReferenceSitesCrawlService {
   private readonly parser: XMLParser
+  private cachedSites: ReferenceSiteRecord[] | null = null
 
-  constructor() {
+  constructor(private readonly referenceSitesRepo: ReferenceSitesRepository) {
     this.parser = new XMLParser({ ignoreDeclaration: true, ignoreAttributes: false, trimValues: true })
+  }
+
+  private async getSites(): Promise<ReferenceSiteRecord[]> {
+    if (!this.cachedSites) {
+      this.cachedSites = await this.referenceSitesRepo.findAll()
+    }
+    return this.cachedSites
+  }
+
+  async getTrustScore(domain: string | null | undefined): Promise<number | null> {
+    if (!domain) return null
+    const norm = domain.toLowerCase().trim().replace(/^www\./, '')
+    const sites = await this.getSites()
+    return sites.find((s) => s.domain === norm)?.trustScore ?? null
   }
 
   async getMatchingArticles(originalTitle: string, originalMeta: string): Promise<{ count: number; items: SimilarArticleItem[] }> {
     const keywords = this.extractKeywords(originalTitle, originalMeta)
     if (keywords.size < MIN_KEYWORD_MATCH) return { count: 0, items: [] }
 
-    const sitesWithFeeds = REFERENCE_SITES.filter((s) => s.feedUrl)
+    const sites = await this.getSites()
     const allItems: SimilarArticleItem[] = []
     const totalKeywords = keywords.size
 
     await Promise.all(
-      sitesWithFeeds.map(async (site) => {
-        const items = await this.getMatchesInFeed(site.feedUrl!, site.domain, keywords, totalKeywords)
+      sites.map(async (site) => {
+        const items = await this.getMatchesInFeed(site.feedUrl, site.domain, keywords, totalKeywords)
         allItems.push(...items)
       }),
     )
@@ -47,14 +64,14 @@ export class ReferenceSitesCrawlService {
     const keywords = this.getSearchTermKeywords(term)
     if (keywords.size < 1) return { urls: [], totalFound: 0 }
 
-    const sitesWithFeeds = REFERENCE_SITES.filter((s) => s.feedUrl)
+    const sites = await this.getSites()
     const seen = new Set<string>()
     const urls: string[] = []
 
     await Promise.all(
-      sitesWithFeeds.map(async (site) => {
+      sites.map(async (site) => {
         try {
-          const res = await globalThis.fetch(site.feedUrl!, {
+          const res = await globalThis.fetch(site.feedUrl, {
             signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
             headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TruthAccordBot/1.0)', Accept: 'application/rss+xml, application/xml, text/xml' },
           })
@@ -180,6 +197,7 @@ export class ReferenceSitesCrawlService {
       for (const it of items) {
         const matchedKeywords = this.getMatchedKeywords(it.title, it.description, keywords)
         if (matchedKeywords.length < MIN_KEYWORD_MATCH) continue
+        if (!isAllowedTopic(`${it.title} ${it.description}`)) continue
         const similarityScore = totalKeywords > 0 ? Math.min(1, Math.round((matchedKeywords.length / totalKeywords) * 10000) / 10000) : 0
         out.push({ url: it.url, title: it.title || null, sourceDomain, matchedKeywords, similarityScore })
       }
