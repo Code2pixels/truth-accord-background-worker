@@ -9,8 +9,8 @@ export class ArticlesRepository {
     const row = await queryOne<ArticleRow>(
       `INSERT INTO articles.records (
         url, title, summary, authored_by, source, source_url,
-        published_at, is_archived, snapshot_timestamp, word_count, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        published_at, is_archived, snapshot_timestamp, word_count, status, category
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       ON CONFLICT (url) DO UPDATE SET
         title              = EXCLUDED.title,
         summary            = EXCLUDED.summary,
@@ -21,6 +21,7 @@ export class ArticlesRepository {
         is_archived        = EXCLUDED.is_archived,
         snapshot_timestamp = EXCLUDED.snapshot_timestamp,
         word_count         = EXCLUDED.word_count,
+        category           = EXCLUDED.category,
         recorded_at        = NOW()
       RETURNING *`,
       [
@@ -35,6 +36,7 @@ export class ArticlesRepository {
         input.snapshotTimestamp ?? null,
         input.wordCount ?? null,
         input.status ?? 'pending',
+        input.category ?? null,
       ],
     )
     if (!row) throw new Error(`Failed to upsert article: ${input.url}`)

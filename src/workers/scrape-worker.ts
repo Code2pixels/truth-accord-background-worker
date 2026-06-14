@@ -8,7 +8,7 @@ import type { TruthfulnessService } from '../services/truthfulness/truthfulness.
 import type { ReferenceSitesCrawlService } from '../services/truthfulness/reference-sites-crawl.service.ts'
 import type { SourcesRepository } from '../repositories/sources.repository.ts'
 import type { ScrapeJob } from '../types.ts'
-import { isAllowedTopic } from '../services/topic-classifier.ts'
+import { classifyTopic } from '../services/topic-classifier.ts'
 
 const MIN_SIMILARITY_TO_SAVE = 0.2
 
@@ -111,16 +111,23 @@ export class ScrapeWorker {
 
       // Step 4: Topic filter
       const topicText = [scraped.title, scraped.metaDescription, scraped.content].filter(Boolean).join(' ')
-      if (!isAllowedTopic(topicText)) {
+      const articleCategory = classifyTopic(topicText)
+      if (!articleCategory) {
         console.log(`[Job ${id}] [4/7] Off-topic — skipping insert`)
         await this.workerJobsRepo.updateStatus(id, 'completed')
         console.log(`[Job ${id}] ── SKIPPED (off-topic) [${Date.now() - t0}ms] ──`)
         return
       }
-      console.log(`[Job ${id}] [4/7] Topic check passed`)
+      console.log(`[Job ${id}] [4/7] Topic check passed — category: ${articleCategory}`)
 
       // Step 5: Upsert article
       console.log(`[Job ${id}] [5/7] Upserting article record...`)
+      const hasTitle = !!(scraped.title?.trim()) && scraped.title.trim().toLowerCase() !== sourceDomain.replace(/^www\./, '').split('.')[0]
+      const hasDescription = !!(scraped.metaDescription?.trim())
+      const articleStatus = hasTitle && hasDescription ? 'approved' : 'pending'
+      if (articleStatus === 'pending') {
+        console.warn(`[Job ${id}]       Incomplete metadata (title=${hasTitle}, description=${hasDescription}) — setting status=pending`)
+      }
       const article = await this.articles.upsert({
         url: scraped.url,
         title: scraped.title,
@@ -131,7 +138,8 @@ export class ScrapeWorker {
         snapshotTimestamp: scraped.snapshotTimestamp,
         metaDescription: scraped.metaDescription,
         wordCount: scraped.wordCount,
-        status: 'approved',
+        status: articleStatus,
+        category: articleCategory,
       })
       console.log(`[Job ${id}]       article.id: ${article.id}`)
 

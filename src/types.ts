@@ -19,6 +19,7 @@ export interface ArticleRow {
   source: string
   source_url: string
   status: string
+  category: string | null
   published_at: string | null
   is_archived: boolean
   snapshot_timestamp: string | null
@@ -79,6 +80,7 @@ export interface CreateArticleInput {
   metaDescription: string | null
   wordCount: number | null
   status?: string
+  category?: string | null
 }
 
 export interface QueueStats {

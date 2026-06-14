@@ -1,19 +1,48 @@
 export const TOPIC_KEYWORDS: Record<string, string[]> = {
-  political: [
+  politics: [
     'congress', 'senate', 'parliament', 'election', 'president', 'government',
     'legislation', 'policy', 'vote', 'democrat', 'republican', 'white house',
     'minister', 'treaty', 'sanctions', 'diplomat', 'campaign', 'ballot',
     'political', 'partisan', 'judiciary', 'supreme court', 'federal',
     'nato', 'geopolitics', 'foreign affairs', 'state department', 'referendum',
     'constitution', 'executive order', 'filibuster', 'impeachment', 'tariff',
+    'governor', 'mayor', 'municipality', 'bill', 'lobbying', 'primary',
+    'midterm', 'inauguration', 'veto', 'bipartisan', 'caucus',
+  ],
+  economics: [
+    'economy', 'gdp', 'inflation', 'recession', 'interest rate', 'federal reserve',
+    'stock market', 'wall street', 'investment', 'trade deficit', 'budget',
+    'tax', 'fiscal', 'monetary', 'bond', 'equity', 'fund', 'earnings',
+    'employment', 'unemployment', 'labor market', 'wage', 'debt', 'deficit',
+    'export', 'import', 'supply chain', 'market', 'merger', 'acquisition',
+    'ipo', 'startup', 'venture capital', 'revenue', 'profit', 'cryptocurrency',
+    'banking', 'financial', 'economic', 'business', 'corporation', 'trade',
   ],
   science: [
     'research', 'study', 'scientist', 'climate', 'species', 'genome', 'vaccine',
     'nasa', 'space', 'physics', 'chemistry', 'biology', 'astronomy', 'ecology',
     'evolution', 'experiment', 'laboratory', 'fossil', 'pandemic', 'virus',
-    'scientific', 'discovery', 'evidence', 'peer review', 'environment',
-    'carbon', 'emissions', 'renewable', 'nuclear', 'quantum', 'genome',
+    'scientific', 'discovery', 'evidence', 'peer review',
+    'carbon', 'emissions', 'renewable', 'nuclear', 'quantum',
     'biodiversity', 'telescope', 'particle', 'enzyme', 'stem cell', 'crispr',
+    'neuroscience', 'geology', 'meteorology', 'oceanography', 'genetics',
+  ],
+  health: [
+    'health', 'disease', 'hospital', 'doctor', 'patient', 'treatment', 'medicine',
+    'drug', 'pharmaceutical', 'fda', 'cdc', 'who', 'public health', 'epidemic',
+    'cancer', 'diabetes', 'heart', 'mental health', 'therapy', 'surgery',
+    'clinical trial', 'diagnosis', 'symptom', 'infection', 'antibiotics',
+    'healthcare', 'medicaid', 'medicare', 'insurance', 'wellness', 'nutrition',
+    'obesity', 'opioid', 'mortality', 'life expectancy', 'aging', 'pediatric',
+  ],
+  technology: [
+    'artificial intelligence', 'machine learning', 'software', 'hardware',
+    'cybersecurity', 'data breach', 'privacy', 'algorithm', 'silicon valley',
+    'tech', 'internet', 'cloud', 'smartphone', 'app', 'platform', 'social media',
+    'automation', 'robot', 'autonomous', 'semiconductor', 'chip', 'quantum computing',
+    'blockchain', 'encryption', 'open source', 'api', 'startup tech',
+    'elon musk', 'google', 'apple', 'microsoft', 'amazon', 'meta', 'nvidia',
+    'broadband', '5g', 'electric vehicle', 'battery', 'drone',
   ],
   education: [
     'school', 'university', 'college', 'student', 'teacher', 'professor',
@@ -21,5 +50,146 @@ export const TOPIC_KEYWORDS: Record<string, string[]> = {
     'tuition', 'literacy', 'learning', 'classroom', 'campus', 'faculty',
     'enrollment', 'degree', 'dissertation', 'training', 'school board',
     'standardized test', 'public school', 'charter school', 'student loan',
+    'higher education', 'stem', 'preschool', 'special education', 'remote learning',
   ],
+  law: [
+    'court', 'judge', 'lawsuit', 'verdict', 'trial', 'attorney', 'prosecutor',
+    'defendant', 'plaintiff', 'indictment', 'conviction', 'sentence', 'appeal',
+    'regulation', 'compliance', 'antitrust', 'legislation', 'statute', 'legal',
+    'supreme court', 'circuit court', 'district court', 'doj', 'fbi', 'dea',
+    'criminal', 'civil rights', 'class action', 'settlement', 'subpoena',
+    'warrant', 'parole', 'prison', 'incarceration', 'bail', 'extradition',
+  ],
+  environment: [
+    'climate change', 'global warming', 'deforestation', 'wildfire', 'drought',
+    'flood', 'hurricane', 'sea level', 'arctic', 'glacier', 'coral reef',
+    'pollution', 'plastic', 'recycling', 'sustainability', 'conservation',
+    'endangered species', 'habitat', 'ecosystem', 'carbon footprint', 'net zero',
+    'epa', 'paris agreement', 'clean energy', 'solar', 'wind power',
+    'natural disaster', 'earthquake', 'tornado', 'weather', 'atmosphere',
+  ],
+  world: [
+    'ukraine', 'russia', 'china', 'middle east', 'europe', 'africa', 'asia',
+    'united nations', 'un security council', 'war', 'conflict', 'ceasefire',
+    'refugee', 'migration', 'asylum', 'terrorism', 'coup', 'protest',
+    'sanctions', 'ambassador', 'embassy', 'bilateral', 'multilateral',
+    'g7', 'g20', 'imf', 'world bank', 'wto', 'opec',
+    'israel', 'iran', 'north korea', 'taiwan', 'india', 'brazil', 'mexico',
+  ],
+  society: [
+    'race', 'racism', 'civil rights', 'discrimination', 'inequality', 'poverty',
+    'immigration', 'border', 'diversity', 'gender', 'lgbtq', 'abortion',
+    'religion', 'culture', 'demographics', 'census', 'social', 'community',
+    'housing', 'homelessness', 'minimum wage', 'union', 'strike', 'labor',
+    'crime', 'gun violence', 'shooting', 'police', 'criminal justice', 'reform',
+    'family', 'childcare', 'welfare', 'social security', 'veterans',
+  ],
+}
+
+// Maps publisher-supplied category strings (lowercased) to our normalized category names.
+// Add entries here as new RSS sources expose new category names.
+export const CATEGORY_ALIASES: Record<string, string> = {
+  // Politics
+  'politics': 'politics',
+  'political': 'politics',
+  'us': 'politics',
+  'us-politics': 'politics',
+  'government': 'politics',
+  'elections': 'politics',
+  'policy': 'politics',
+  'white-house': 'politics',
+  'congress': 'politics',
+  'washington': 'politics',
+
+  // Economics / Business
+  'economics': 'economics',
+  'economy': 'economics',
+  'business': 'economics',
+  'finance': 'economics',
+  'financial': 'economics',
+  'markets': 'economics',
+  'money': 'economics',
+  'investing': 'economics',
+  'stocks': 'economics',
+  'trade': 'economics',
+  'companies': 'economics',
+  'entrepreneurship': 'economics',
+
+  // Science
+  'science': 'science',
+  'scientific': 'science',
+  'space': 'science',
+  'climate': 'science',
+  'research': 'science',
+  'biology': 'science',
+  'physics': 'science',
+
+  // Health
+  'health': 'health',
+  'medicine': 'health',
+  'medical': 'health',
+  'healthcare': 'health',
+  'wellness': 'health',
+  'pharma': 'health',
+  'public-health': 'health',
+
+  // Technology
+  'technology': 'technology',
+  'tech': 'technology',
+  'ai': 'technology',
+  'artificial-intelligence': 'technology',
+  'cybersecurity': 'technology',
+  'software': 'technology',
+  'gadgets': 'technology',
+  'internet': 'technology',
+  'startups': 'technology',
+  'innovation': 'technology',
+
+  // Education
+  'education': 'education',
+  'schools': 'education',
+  'learning': 'education',
+  'academia': 'education',
+
+  // Law
+  'law': 'law',
+  'legal': 'law',
+  'courts': 'law',
+  'justice': 'law',
+  'crime': 'law',
+  'regulation': 'law',
+
+  // Environment
+  'environment': 'environment',
+  'climate-change': 'environment',
+  'sustainability': 'environment',
+  'energy': 'environment',
+  'nature': 'environment',
+  'conservation': 'environment',
+
+  // World / International
+  'world': 'world',
+  'international': 'world',
+  'foreign': 'world',
+  'global': 'world',
+  'geopolitics': 'world',
+  'war': 'world',
+  'conflict': 'world',
+  'middle-east': 'world',
+  'europe': 'world',
+  'asia': 'world',
+  'africa': 'world',
+  'americas': 'world',
+
+  // Society / Culture
+  'society': 'society',
+  'culture': 'society',
+  'social': 'society',
+  'race': 'society',
+  'immigration': 'society',
+  'religion': 'society',
+  'gender': 'society',
+  'labor': 'society',
+  'lifestyle': 'society',
+  'community': 'society',
 }

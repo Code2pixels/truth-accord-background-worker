@@ -14,12 +14,29 @@ interface FeedItem {
   link?: string | { '#text': string } | Array<{ '@_rel'?: string; '@_href'?: string } | string>
   guid?: string | { '#text': string }
   id?: string
+  category?: string | string[] | { '@_term'?: string } | Array<{ '@_term'?: string }>
 }
 
 function extractText(val: string | { '#text': string } | undefined): string {
   if (!val) return ''
   if (typeof val === 'string') return val
   return val['#text'] ?? ''
+}
+
+function extractCategories(item: FeedItem): string[] {
+  const { category } = item
+  if (!category) return []
+
+  const toStr = (c: string | { '@_term'?: string }): string | null => {
+    if (typeof c === 'string') return c
+    return c['@_term'] ?? null
+  }
+
+  if (Array.isArray(category)) {
+    return category.flatMap((c) => { const s = toStr(c); return s ? [s] : [] })
+  }
+  const s = toStr(category)
+  return s ? [s] : []
 }
 
 function extractUrl(item: FeedItem): string | null {
@@ -140,8 +157,9 @@ export class RssFeedWorker {
           for (const item of items) {
             const raw = extractUrl(item)
             if (!raw) continue
+            const rssCategories = extractCategories(item)
             const topicText = `${extractText(item.title)} ${extractText(item.description ?? item.summary)}`
-            if (!isAllowedTopic(topicText)) continue
+            if (!isAllowedTopic(topicText, rssCategories)) continue
             const url = normalizeUrl(raw)
             const hash = hashUrl(url)
             try {
