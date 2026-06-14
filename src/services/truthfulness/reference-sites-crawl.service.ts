@@ -3,9 +3,9 @@ import { STOP_WORDS } from '../../config/reference.config.ts'
 import { isAllowedTopic } from '../topic-classifier.ts'
 import type { ReferenceSitesRepository, ReferenceSiteRecord } from '../../repositories/reference-sites.repository.ts'
 
-const MIN_WORD_LENGTH = 4
-const MIN_KEYWORD_MATCH = 2
-const FEED_TIMEOUT_MS = 8_000
+const MIN_WORD_LENGTH = Number(process.env['REFERENCE_MIN_WORD_LENGTH'] ?? 4)
+const MIN_KEYWORD_MATCH = Number(process.env['REFERENCE_MIN_KEYWORD_MATCH'] ?? 2)
+const FEED_TIMEOUT_MS = Number(process.env['SEARCH_FEED_TIMEOUT_MS'] ?? 8_000)
 
 export interface SimilarArticleItem {
   url: string

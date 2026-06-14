@@ -30,9 +30,15 @@ export class ScraperService {
 
     const extracted = this.staticScraper.extractArticleData(raw.html)
     const paywallSignals = this.detectPaywall(raw.html, extracted.wordCount)
-    const paywallDetected = Object.values(paywallSignals).some(Boolean)
+    const paywallDetected = this.isPaywalled(paywallSignals)
 
     return { url, ...extracted, isArchived: false, snapshotTimestamp: null, paywallDetected }
+  }
+
+  isPaywalled(s: PaywallSignals): boolean {
+    if (s.isContentEmpty) return true
+    const signalCount = [s.hasPaywallKeyword, s.hasSubscribeModal, s.wordCountBelowThreshold].filter(Boolean).length
+    return signalCount >= 2
   }
 
   detectPaywall(html: string, wordCount: number | null): PaywallSignals {
