@@ -37,17 +37,19 @@ export class ReferenceSitesCrawlService {
     return sites.find((s) => s.domain === norm)?.trustScore ?? null
   }
 
-  async getMatchingArticles(originalTitle: string, originalMeta: string): Promise<{ count: number; items: SimilarArticleItem[] }> {
+  async getMatchingArticles(originalTitle: string, originalMeta: string, content = ''): Promise<{ count: number; items: SimilarArticleItem[] }> {
     const keywords = this.extractKeywords(originalTitle, originalMeta)
     if (keywords.size < MIN_KEYWORD_MATCH) return { count: 0, items: [] }
 
+    const titleBigrams = this.extractBigrams(originalTitle)
+    const namedEntities = this.extractNamedEntities(content)
+
     const sites = await this.getSites()
     const allItems: SimilarArticleItem[] = []
-    const totalKeywords = keywords.size
 
     await Promise.all(
       sites.map(async (site) => {
-        const items = await this.getMatchesInFeed(site.feedUrl, site.domain, keywords, totalKeywords)
+        const items = await this.getMatchesInFeed(site.feedUrl, site.domain, keywords, titleBigrams, namedEntities)
         allItems.push(...items)
       }),
     )
@@ -55,8 +57,8 @@ export class ReferenceSitesCrawlService {
     return { count: allItems.length, items: allItems }
   }
 
-  async getMatchingArticleCount(originalTitle: string, originalMeta: string): Promise<number> {
-    const { count } = await this.getMatchingArticles(originalTitle, originalMeta)
+  async getMatchingArticleCount(originalTitle: string, originalMeta: string, content = ''): Promise<number> {
+    const { count } = await this.getMatchingArticles(originalTitle, originalMeta, content)
     return count
   }
 
@@ -92,6 +94,58 @@ export class ReferenceSitesCrawlService {
     )
 
     return { urls: urls.slice(0, limit), totalFound: urls.length }
+  }
+
+  private extractBigrams(title: string): Set<string> {
+    const words = title.toLowerCase().replace(/[^\w\s'-]/g, ' ').split(/\s+/).filter(Boolean)
+    const set = new Set<string>()
+    for (let i = 0; i < words.length - 1; i++) {
+      const wordA = words[i]
+      const wordB = words[i + 1]
+      if (!wordA || !wordB) continue
+      const a = wordA.replace(/^['-]+|['-]+$/g, '')
+      const b = wordB.replace(/^['-]+|['-]+$/g, '')
+      if (a.length >= MIN_WORD_LENGTH && b.length >= MIN_WORD_LENGTH && !STOP_WORDS.has(a) && !STOP_WORDS.has(b)) {
+        set.add(`${a} ${b}`)
+      }
+    }
+    return set
+  }
+
+  private extractNamedEntities(content: string): Set<string> {
+    const set = new Set<string>()
+    if (!content.trim()) return set
+
+    // Only extract runs of 2–3 consecutive capitalised tokens — single capitalised words
+    // are too ambiguous (sentence openers, common nouns) to be reliable signals.
+    const sentences = content.split(/(?<=[.!?])\s+/)
+    for (const sentence of sentences) {
+      const tokens = sentence.trim().split(/\s+/)
+      let i = 0
+      while (i < tokens.length) {
+        const rawToken = tokens[i]
+        if (!rawToken) { i++; continue }
+        const token = rawToken.replace(/[^A-Za-z'-]/g, '')
+        if (token.length >= 3 && /^[A-Z]/.test(token) && !STOP_WORDS.has(token.toLowerCase())) {
+          const run: string[] = [token]
+          let j = i + 1
+          while (j < tokens.length && run.length < 3) {
+            const rawNext = tokens[j]
+            if (!rawNext) break
+            const next = rawNext.replace(/[^A-Za-z'-]/g, '')
+            if (next.length >= 2 && /^[A-Z]/.test(next)) {
+              run.push(next)
+              j++
+            } else break
+          }
+          if (run.length >= 2) set.add(run.join(' '))
+          i = j
+        } else {
+          i++
+        }
+      }
+    }
+    return set
   }
 
   private extractKeywords(title: string, meta: string): Set<string> {
@@ -185,7 +239,13 @@ export class ReferenceSitesCrawlService {
     }
   }
 
-  private async getMatchesInFeed(feedUrl: string, sourceDomain: string, keywords: Set<string>, totalKeywords: number): Promise<SimilarArticleItem[]> {
+  private async getMatchesInFeed(
+    feedUrl: string,
+    sourceDomain: string,
+    keywords: Set<string>,
+    titleBigrams: Set<string>,
+    namedEntities: Set<string>,
+  ): Promise<SimilarArticleItem[]> {
     try {
       const res = await globalThis.fetch(feedUrl, {
         signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
@@ -194,11 +254,51 @@ export class ReferenceSitesCrawlService {
       const xml = await res.text()
       const items = this.getFeedItems(xml)
       const out: SimilarArticleItem[] = []
+
       for (const it of items) {
+        const candidateText = `${it.title} ${it.description}`.toLowerCase()
+
+        // Hard filter 1: unigram minimum
         const matchedKeywords = this.getMatchedKeywords(it.title, it.description, keywords)
         if (matchedKeywords.length < MIN_KEYWORD_MATCH) continue
+
+        // Hard filter 2: at least one title bigram must match
+        if (titleBigrams.size > 0) {
+          const hasBigram = [...titleBigrams].some((bg) => candidateText.includes(bg))
+          if (!hasBigram) continue
+        }
+
+        // Hard filter 3: at least one named entity must match
+        if (namedEntities.size > 0) {
+          const hasEntity = [...namedEntities].some((e) => candidateText.includes(e.toLowerCase()))
+          if (!hasEntity) continue
+        }
+
         if (!isAllowedTopic(`${it.title} ${it.description}`)) continue
-        const similarityScore = totalKeywords > 0 ? Math.min(1, Math.round((matchedKeywords.length / totalKeywords) * 10000) / 10000) : 0
+
+        // Weighted score
+        const totalKeywords = keywords.size
+        const unigramRatio = totalKeywords > 0 ? matchedKeywords.length / totalKeywords : 0
+
+        const matchedBigrams = titleBigrams.size > 0
+          ? [...titleBigrams].filter((bg) => candidateText.includes(bg)).length
+          : 0
+        const bigramRatio = titleBigrams.size > 0 ? matchedBigrams / titleBigrams.size : 0
+
+        const matchedEntities = namedEntities.size > 0
+          ? [...namedEntities].filter((e) => candidateText.includes(e.toLowerCase())).length
+          : 0
+        const entityRatio = namedEntities.size > 0 ? matchedEntities / namedEntities.size : 0
+
+        // If a signal type is absent, redistribute its weight to unigrams
+        const unigramWeight = 0.4 + (titleBigrams.size === 0 ? 0.35 : 0) + (namedEntities.size === 0 ? 0.25 : 0)
+        const bigramWeight = titleBigrams.size > 0 ? 0.35 : 0
+        const entityWeight = namedEntities.size > 0 ? 0.25 : 0
+
+        const similarityScore = Math.min(1, Math.round(
+          (unigramRatio * unigramWeight + bigramRatio * bigramWeight + entityRatio * entityWeight) * 10000
+        ) / 10000)
+
         out.push({ url: it.url, title: it.title || null, sourceDomain, matchedKeywords, similarityScore })
       }
       return out

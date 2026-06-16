@@ -10,7 +10,7 @@ import type { SourcesRepository } from '../repositories/sources.repository.ts'
 import type { ScrapeJob } from '../types.ts'
 import { classifyTopic } from '../services/topic-classifier.ts'
 
-const MIN_SIMILARITY_TO_SAVE = 0.2
+const MIN_SIMILARITY_TO_SAVE = 0.4
 
 export class ScrapeWorker {
   private isRunning = false
@@ -148,7 +148,7 @@ export class ScrapeWorker {
       const meta = scraped.metaDescription?.trim() ?? ''
       console.log(`[Job ${id}] [6/7] Crawling reference feeds for similar articles...`)
       console.log(`[Job ${id}]       keywords extracted from: "${title.slice(0, 80)}${title.length > 80 ? '…' : ''}"`)
-      const matchResult = await this.referenceSitesCrawl.getMatchingArticles(title, meta)
+      const matchResult = await this.referenceSitesCrawl.getMatchingArticles(title, meta, scraped.content ?? '')
       const normalizedSourceDomain = sourceDomain.replace(/^www\./, '')
       const itemsToSave = matchResult.items.filter((it) =>
         (it.similarityScore ?? 0) >= MIN_SIMILARITY_TO_SAVE && it.sourceDomain !== normalizedSourceDomain,
