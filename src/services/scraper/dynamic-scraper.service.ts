@@ -13,7 +13,16 @@ export class DynamicScraperService {
 
   private async getBrowser(): Promise<Browser> {
     if (!this.browser?.isConnected()) {
-      this.browser = await chromium.launch({ headless: this.headless, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
+      this.browser = await chromium.launch({
+        headless: this.headless,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',   // avoids /dev/shm exhaustion on servers
+          '--disable-gpu',             // no GPU in headless server environments
+          '--disable-software-rasterizer',
+        ],
+      })
       console.log('[DynamicScraper] Playwright browser launched')
     }
     return this.browser
