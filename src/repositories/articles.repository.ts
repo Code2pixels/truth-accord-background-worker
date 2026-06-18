@@ -1,4 +1,4 @@
-import { queryOne } from '../db/client.ts'
+import { query, queryOne } from '../db/client.ts'
 import type { ArticleRow, CreateArticleInput } from '../types.ts'
 
 export class ArticlesRepository {
@@ -41,5 +41,9 @@ export class ArticlesRepository {
     )
     if (!row) throw new Error(`Failed to upsert article: ${input.url}`)
     return row
+  }
+
+  async markUnverified(id: string): Promise<void> {
+    await query(`UPDATE articles.records SET status = 'unverified' WHERE id = $1`, [id])
   }
 }

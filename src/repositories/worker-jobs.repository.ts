@@ -54,7 +54,7 @@ export class WorkerJobsRepository {
     return row !== null
   }
 
-  async updateStatus(id: string, status: 'completed' | 'failed'): Promise<void> {
+  async updateStatus(id: string, status: 'completed' | 'failed' | 'dead'): Promise<void> {
     await query(
       `UPDATE worker.jobs SET status = $1 WHERE id = $2`,
       [status, id],

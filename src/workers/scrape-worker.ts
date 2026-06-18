@@ -8,6 +8,7 @@ import type { TruthfulnessService } from '../services/truthfulness/truthfulness.
 import type { ReferenceSitesCrawlService } from '../services/truthfulness/reference-sites-crawl.service.ts'
 import type { SourcesRepository } from '../repositories/sources.repository.ts'
 import type { ScrapeJob } from '../types.ts'
+import type { OllamaService } from '../services/ollama.service.ts'
 import { classifyTopic } from '../services/topic-classifier.ts'
 
 const MIN_SIMILARITY_TO_SAVE = 0.4
@@ -28,6 +29,7 @@ export class ScrapeWorker {
     private readonly truthfulness: TruthfulnessService,
     private readonly referenceSitesCrawl: ReferenceSitesCrawlService,
     private readonly sourcesRepo: SourcesRepository,
+    private readonly ollama: OllamaService,
   ) {
     this.concurrency = Number(process.env['QUEUE_CONCURRENCY'] ?? 3)
     this.maxRetries = Number(process.env['MAX_RETRIES'] ?? 3)
@@ -109,9 +111,17 @@ export class ScrapeWorker {
       console.log(`[Job ${id}] [3/7] Ensuring source domain: ${sourceDomain}`)
       await this.sourcesRepo.ensureExists(sourceDomain)
 
-      // Step 4: Topic filter
-      const topicText = [scraped.title, scraped.metaDescription, scraped.content].filter(Boolean).join(' ')
-      const articleCategory = classifyTopic(topicText)
+      // Step 4: Topic filter (keyword fast path, Ollama fallback)
+      const urlSlug = new URL(url).pathname.replace(/[-/]/g, ' ')
+      const topicText = [urlSlug, scraped.title, scraped.metaDescription, scraped.content].filter(Boolean).join(' ')
+      let articleCategory = classifyTopic(topicText)
+      if (!articleCategory) {
+        console.log(`[Job ${id}] [4/7] Keyword classifier returned null — asking Ollama...`)
+        articleCategory = await this.ollama.classifyTopic(scraped.title ?? '', scraped.metaDescription ?? '')
+        if (articleCategory) {
+          console.log(`[Job ${id}] [4/7] Ollama classified as: ${articleCategory}`)
+        }
+      }
       if (!articleCategory) {
         console.log(`[Job ${id}] [4/7] Off-topic — skipping insert`)
         await this.workerJobsRepo.updateStatus(id, 'completed')
@@ -158,6 +168,20 @@ export class ScrapeWorker {
         for (const it of itemsToSave) {
           console.log(`[Job ${id}]         • [${(it.similarityScore * 100).toFixed(1)}%] ${it.sourceDomain} — ${it.title ?? it.url}`)
         }
+      }
+
+      // If no similar articles found, requeue until max_attempts then mark unverified
+      if (itemsToSave.length === 0) {
+        const isLastAttempt = job.attempts + 1 >= job.max_attempts
+        if (isLastAttempt) {
+          await this.articles.markUnverified(article.id)
+          await this.workerJobsRepo.updateStatus(id, 'dead')
+          console.log(`[Job ${id}] ── UNVERIFIED (no similar articles after ${job.max_attempts} attempts) [${Date.now() - t0}ms] ──`)
+        } else {
+          await this.workerJobsRepo.failWithRetry(id, 'No similar articles found')
+          console.log(`[Job ${id}] ── REQUEUED (no similar articles, attempt ${job.attempts + 1}/${job.max_attempts}) [${Date.now() - t0}ms] ──`)
+        }
+        return
       }
 
       // Step 7: Compute truthfulness scores

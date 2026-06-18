@@ -13,4 +13,8 @@ export class ArticlesService {
     const row = await this.articlesRepo.upsert(input)
     return { id: row.id, url: row.url }
   }
+
+  async markUnverified(id: string): Promise<void> {
+    await this.articlesRepo.markUnverified(id)
+  }
 }

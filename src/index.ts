@@ -11,6 +11,7 @@ import { WaybackService } from './services/wayback/wayback.service.ts'
 import { ReferenceSitesCrawlService } from './services/truthfulness/reference-sites-crawl.service.ts'
 import { TruthfulnessService } from './services/truthfulness/truthfulness.service.ts'
 import { ArticlesService } from './services/articles.service.ts'
+import { OllamaService } from './services/ollama.service.ts'
 import { ScrapeWorker } from './workers/scrape-worker.ts'
 import { WaybackRecheckWorker } from './workers/wayback-recheck.ts'
 import { RssFeedWorker } from './workers/rss-feed.worker.ts'
@@ -42,11 +43,12 @@ async function main(): Promise<void> {
   const referenceSitesCrawl = new ReferenceSitesCrawlService(referenceSitesRepo)
   const truthfulness = new TruthfulnessService(referenceSitesCrawl)
   const articles = new ArticlesService(articlesRepo)
+  const ollama = new OllamaService()
 
   // Workers
   const scrapeWorker = new ScrapeWorker(
     scraper, wayback, articles, workerJobsRepo, truthfulnessScoresRepo,
-    similarArticlesRepo, truthfulness, referenceSitesCrawl, sourcesRepo,
+    similarArticlesRepo, truthfulness, referenceSitesCrawl, sourcesRepo, ollama,
   )
   const waybackRecheckWorker = new WaybackRecheckWorker(workerJobsRepo, wayback)
 
@@ -69,16 +71,31 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void shutdown())
   process.on('SIGINT', () => void shutdown())
 
-  // undici throws AssertionError inside TLS socket event handlers when the remote
-  // server closes the connection mid-response. These bypass async/await catch blocks
-  // and would otherwise crash the process.
+  // undici (Node fetch) throws errors synchronously from TLS/socket event handlers
+  // when connections are closed or reset mid-response. These bypass async/await catch
+  // blocks entirely. Treat them as transient and log rather than crash.
+  const TRANSIENT_NETWORK_CODES = new Set([
+    'ERR_ASSERTION',   // undici TLS connection-close (original case)
+    'ECONNRESET',      // remote peer closed connection unexpectedly
+    'ECONNREFUSED',    // remote refused the connection
+    'ETIMEDOUT',       // connection or read timed out
+    'ENOTFOUND',       // DNS resolution failure
+    'EPROTO',          // SSL/TLS protocol error
+  ])
   process.on('uncaughtException', (err) => {
-    if ((err as NodeJS.ErrnoException).code === 'ERR_ASSERTION') {
-      console.warn('[main] Swallowed undici connection-close AssertionError:', err.message)
+    const code = (err as NodeJS.ErrnoException).code
+    if (TRANSIENT_NETWORK_CODES.has(code ?? '')) {
+      console.warn(`[main] Swallowed transient network error (${code ?? err.name}): ${err.message}`)
       return
     }
     console.error('[main] Uncaught exception — shutting down:', err)
     void shutdown()
+  })
+
+  // Prevent unhandled promise rejections from crashing the process.
+  // Individual workers catch their own errors; this is a last-resort safety net.
+  process.on('unhandledRejection', (reason) => {
+    console.error('[main] Unhandled rejection:', reason instanceof Error ? reason.message : reason)
   })
 }
 
