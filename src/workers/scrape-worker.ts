@@ -117,10 +117,16 @@ export class ScrapeWorker {
       let articleCategory = classifyTopic(topicText)
       if (!articleCategory) {
         console.log(`[Job ${id}] [4/7] Keyword classifier returned null — asking Ollama...`)
-        articleCategory = await this.ollama.classifyTopic(scraped.title ?? '', scraped.metaDescription ?? '')
+        const ollamaContent = await this.ollama.scoreContentAndClassify(
+          scraped.title ?? '',
+          scraped.metaDescription ?? '',
+          scraped.content ?? '',
+        )
+        articleCategory = ollamaContent.category
         if (articleCategory) {
           console.log(`[Job ${id}] [4/7] Ollama classified as: ${articleCategory}`)
         }
+        console.log(`[Job ${id}]       [Ollama] biasScore: ${ollamaContent.biasScore ?? 'null'} | languageScore: ${ollamaContent.languageScore ?? 'null'}`)
       }
       if (!articleCategory) {
         console.log(`[Job ${id}] [4/7] Off-topic — skipping insert`)
@@ -168,6 +174,12 @@ export class ScrapeWorker {
         for (const it of itemsToSave) {
           console.log(`[Job ${id}]         • [${(it.similarityScore * 100).toFixed(1)}%] ${it.sourceDomain} — ${it.title ?? it.url}`)
         }
+      }
+
+      // Ollama: score similar articles corroboration
+      if (itemsToSave.length > 0) {
+        const ollamaSimilar = await this.ollama.scoreSimilarArticles(scraped.title ?? '', itemsToSave)
+        console.log(`[Job ${id}]       [Ollama] similarArticlesScore: ${ollamaSimilar.similarArticlesScore ?? 'null'}`)
       }
 
       // If no similar articles found, requeue until max_attempts then mark unverified

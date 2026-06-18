@@ -90,3 +90,13 @@ export interface QueueStats {
   failed: number
   dead: number
 }
+
+export interface OllamaContentScores {
+  category: string | null
+  biasScore: number | null
+  languageScore: number | null
+}
+
+export interface OllamaSimilarArticlesScore {
+  similarArticlesScore: number | null
+}
