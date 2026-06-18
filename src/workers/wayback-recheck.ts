@@ -18,36 +18,40 @@ export class WaybackRecheckWorker {
   }
 
   private async runNightlyRecheck(): Promise<void> {
-    console.log('[WaybackRecheck] Starting nightly Wayback recheck')
+    try {
+      console.log('[WaybackRecheck] Starting nightly Wayback recheck')
 
-    const candidates = await this.workerJobsRepo.findFailedWaybackRecheckCandidates(
-      RECHECK_BATCH_SIZE,
-      RECHECK_OLDER_THAN_HOURS,
-    )
+      const candidates = await this.workerJobsRepo.findFailedWaybackRecheckCandidates(
+        RECHECK_BATCH_SIZE,
+        RECHECK_OLDER_THAN_HOURS,
+      )
 
-    if (candidates.length === 0) {
-      console.log('[WaybackRecheck] No candidates')
-      return
-    }
-
-    console.log(`[WaybackRecheck] Rechecking ${candidates.length} URL(s)`)
-
-    let queued = 0
-    for (const { id, url } of candidates) {
-      try {
-        const snapshot = await this.wayback.getLatestSnapshot(url)
-        if (snapshot) {
-          await this.workerJobsRepo.create(stripUtmParams(url))
-          queued++
-          console.log(`[WaybackRecheck] Now available — re-queued: ${url}`)
-        }
-        await this.workerJobsRepo.markWaybackRecheckQueued(id)
-      } catch (err) {
-        console.warn(`[WaybackRecheck] Recheck failed for ${url}: ${err instanceof Error ? err.message : err}`)
-        await this.workerJobsRepo.markWaybackRecheckQueued(id)
+      if (candidates.length === 0) {
+        console.log('[WaybackRecheck] No candidates')
+        return
       }
-    }
 
-    console.log(`[WaybackRecheck] Done: ${candidates.length} checked, ${queued} re-queued`)
+      console.log(`[WaybackRecheck] Rechecking ${candidates.length} URL(s)`)
+
+      let queued = 0
+      for (const { id, url } of candidates) {
+        try {
+          const snapshot = await this.wayback.getLatestSnapshot(url)
+          if (snapshot) {
+            await this.workerJobsRepo.create(stripUtmParams(url))
+            queued++
+            console.log(`[WaybackRecheck] Now available — re-queued: ${url}`)
+          }
+          await this.workerJobsRepo.markWaybackRecheckQueued(id)
+        } catch (err) {
+          console.warn(`[WaybackRecheck] Recheck failed for ${url}: ${err instanceof Error ? err.message : err}`)
+          await this.workerJobsRepo.markWaybackRecheckQueued(id)
+        }
+      }
+
+      console.log(`[WaybackRecheck] Done: ${candidates.length} checked, ${queued} re-queued`)
+    } catch (err) {
+      console.error('[WaybackRecheck] Nightly recheck failed:', err instanceof Error ? err.message : err)
+    }
   }
 }
