@@ -13,7 +13,7 @@ export class DynamicScraperService {
 
   private async getBrowser(): Promise<Browser> {
     if (!this.browser?.isConnected()) {
-      this.browser = await chromium.launch({ headless: this.headless })
+      this.browser = await chromium.launch({ headless: this.headless, args: ['--no-sandbox', '--disable-setuid-sandbox'] })
       console.log('[DynamicScraper] Playwright browser launched')
     }
     return this.browser
