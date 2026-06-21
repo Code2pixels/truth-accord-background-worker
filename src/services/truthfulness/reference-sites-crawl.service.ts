@@ -258,21 +258,9 @@ export class ReferenceSitesCrawlService {
       for (const it of items) {
         const candidateText = `${it.title} ${it.description}`.toLowerCase()
 
-        // Hard filter 1: unigram minimum
+        // Hard filter: unigram minimum — only gate; bigrams/entities are scoring signals only
         const matchedKeywords = this.getMatchedKeywords(it.title, it.description, keywords)
         if (matchedKeywords.length < MIN_KEYWORD_MATCH) continue
-
-        // Hard filter 2: at least one title bigram must match
-        if (titleBigrams.size > 0) {
-          const hasBigram = [...titleBigrams].some((bg) => candidateText.includes(bg))
-          if (!hasBigram) continue
-        }
-
-        // Hard filter 3: at least one named entity must match
-        if (namedEntities.size > 0) {
-          const hasEntity = [...namedEntities].some((e) => candidateText.includes(e.toLowerCase()))
-          if (!hasEntity) continue
-        }
 
         if (!isAllowedTopic(`${it.title} ${it.description}`)) continue
 

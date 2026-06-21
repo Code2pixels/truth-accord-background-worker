@@ -76,7 +76,7 @@ describe('extractNamedEntities', () => {
 describe('getMatchesInFeed scoring', () => {
   const getMatchesInFeed = priv.getMatchesInFeed.bind(svc)
 
-  it('rejects candidate with no named entity match', async () => {
+  it('accepts candidate with keyword+bigram match even without named entity match', async () => {
     mock.method(globalThis, 'fetch', async () => ({
       text: async () => `<?xml version="1.0"?>
         <rss version="2.0"><channel>
@@ -100,7 +100,8 @@ describe('getMatchesInFeed scoring', () => {
       namedEntities,
     )
 
-    assert.equal(result.length, 0, 'should reject candidate missing named entity')
+    assert.equal(result.length, 1, 'should accept candidate that passes keyword+bigram filters')
+    assert.ok(result[0]!.similarityScore > 0, 'score should be positive')
     mock.restoreAll()
   })
 

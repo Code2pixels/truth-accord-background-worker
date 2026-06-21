@@ -11,7 +11,7 @@ import type { ScrapeJob } from '../types.ts'
 import type { OllamaService } from '../services/ollama.service.ts'
 import { classifyTopic } from '../services/topic-classifier.ts'
 
-const MIN_SIMILARITY_TO_SAVE = 0.4
+const MIN_SIMILARITY_TO_SAVE = 0.25
 
 export class ScrapeWorker {
   private isRunning = false
@@ -111,30 +111,25 @@ export class ScrapeWorker {
       console.log(`[Job ${id}] [3/7] Ensuring source domain: ${sourceDomain}`)
       await this.sourcesRepo.ensureExists(sourceDomain)
 
-      // Step 4: Topic filter (keyword fast path, Ollama fallback)
+      // Step 4: Topic filter — Ollama primary, keyword classifier as category fallback
       const urlSlug = new URL(url).pathname.replace(/[-/]/g, ' ')
       const topicText = [urlSlug, scraped.title, scraped.metaDescription, scraped.content].filter(Boolean).join(' ')
-      let articleCategory = classifyTopic(topicText)
-      if (!articleCategory) {
-        console.log(`[Job ${id}] [4/7] Keyword classifier returned null — asking Ollama...`)
-        const ollamaContent = await this.ollama.scoreContentAndClassify(
-          scraped.title ?? '',
-          scraped.metaDescription ?? '',
-          scraped.content ?? '',
-        )
-        articleCategory = ollamaContent.category
-        if (articleCategory) {
-          console.log(`[Job ${id}] [4/7] Ollama classified as: ${articleCategory}`)
-        }
-        console.log(`[Job ${id}]       [Ollama] biasScore: ${ollamaContent.biasScore ?? 'null'} | languageScore: ${ollamaContent.languageScore ?? 'null'}`)
-      }
-      if (!articleCategory) {
+      console.log(`[Job ${id}] [4/7] Scoring and classifying via Ollama...`)
+      const ollamaContent = await this.ollama.scoreContentAndClassify(
+        scraped.title ?? '',
+        scraped.metaDescription ?? '',
+        scraped.content ?? '',
+      )
+      console.log(`[Job ${id}]       [Ollama] category: ${ollamaContent.category ?? 'null'} | biasScore: ${ollamaContent.biasScore ?? 'null'} | languageScore: ${ollamaContent.languageScore ?? 'null'}`)
+      const articleCategory = ollamaContent.category ?? classifyTopic(topicText)
+      if (articleCategory) {
+        console.log(`[Job ${id}] [4/7] Topic check passed — category: ${articleCategory}${ollamaContent.category ? ' (Ollama)' : ' (keyword)'}`)
+      } else {
         console.log(`[Job ${id}] [4/7] Off-topic — skipping insert`)
         await this.workerJobsRepo.updateStatus(id, 'completed')
         console.log(`[Job ${id}] ── SKIPPED (off-topic) [${Date.now() - t0}ms] ──`)
         return
       }
-      console.log(`[Job ${id}] [4/7] Topic check passed — category: ${articleCategory}`)
 
       // Step 5: Upsert article
       console.log(`[Job ${id}] [5/7] Upserting article record...`)
@@ -177,10 +172,10 @@ export class ScrapeWorker {
       }
 
       // Ollama: score similar articles corroboration
-      if (itemsToSave.length > 0) {
-        const ollamaSimilar = await this.ollama.scoreSimilarArticles(scraped.title ?? '', itemsToSave)
-        console.log(`[Job ${id}]       [Ollama] similarArticlesScore: ${ollamaSimilar.similarArticlesScore ?? 'null'}`)
-      }
+      const ollamaSimilar = itemsToSave.length > 0
+        ? await this.ollama.scoreSimilarArticles(scraped.title ?? '', itemsToSave)
+        : { similarArticlesScore: null }
+      console.log(`[Job ${id}]       [Ollama] similarArticlesScore: ${ollamaSimilar.similarArticlesScore ?? 'null'}`)
 
       // If no similar articles found, requeue until max_attempts then mark unverified
       if (itemsToSave.length === 0) {
@@ -196,23 +191,42 @@ export class ScrapeWorker {
         return
       }
 
-      // Step 7: Compute truthfulness scores
-      console.log(`[Job ${id}] [7/7] Computing truthfulness scores...`)
-      const truthfulnessMetrics = await this.truthfulness.computeScores({
-        title: scraped.title,
-        author: scraped.author,
-        metaDescription: scraped.metaDescription,
-        wordCount: scraped.wordCount,
-        content: scraped.content,
-        url: scraped.url,
-        sourceDomain,
-      }, itemsToSave.length)
-      console.log(`[Job ${id}]       factual_accuracy:        ${truthfulnessMetrics.factualAccuracy}`)
-      console.log(`[Job ${id}]       source_citation_quality: ${truthfulnessMetrics.sourceCitationQuality}`)
-      console.log(`[Job ${id}]       bias_indicator:          ${truthfulnessMetrics.biasIndicator}`)
-      console.log(`[Job ${id}]       claim_verifiability:     ${truthfulnessMetrics.claimVerifiability}`)
-      console.log(`[Job ${id}]       language_quality:        ${truthfulnessMetrics.languageQuality}`)
-      console.log(`[Job ${id}]       overall_truthfulness:    ${truthfulnessMetrics.overallTruthfulness}`)
+      // Step 7: Truthfulness scores — Ollama primary, heuristic fallback
+      const hasOllamaScores = ollamaContent.biasScore != null
+        || ollamaContent.languageScore != null
+        || ollamaSimilar.similarArticlesScore != null
+      let truthfulnessMetrics
+      if (hasOllamaScores) {
+        console.log(`[Job ${id}] [7/7] Persisting Ollama scores...`)
+        const toDecimal = (v: number | null) => v != null ? v / 100 : null
+        const biasIndicator = toDecimal(ollamaContent.biasScore)
+        const languageQuality = toDecimal(ollamaContent.languageScore)
+        const sourceCitationQuality = toDecimal(ollamaSimilar.similarArticlesScore)
+        const signals = [biasIndicator, languageQuality, sourceCitationQuality].filter((v): v is number => v != null)
+        const overallTruthfulness = signals.length > 0 ? signals.reduce((a, b) => a + b, 0) / signals.length : null
+        truthfulnessMetrics = { biasIndicator, languageQuality, sourceCitationQuality, overallTruthfulness }
+        console.log(`[Job ${id}]       bias_indicator:          ${biasIndicator}`)
+        console.log(`[Job ${id}]       language_quality:        ${languageQuality}`)
+        console.log(`[Job ${id}]       source_citation_quality: ${sourceCitationQuality}`)
+        console.log(`[Job ${id}]       overall_truthfulness:    ${overallTruthfulness}`)
+      } else {
+        console.log(`[Job ${id}] [7/7] Ollama unavailable — falling back to heuristic scoring...`)
+        truthfulnessMetrics = await this.truthfulness.computeScores({
+          title: scraped.title,
+          author: scraped.author,
+          metaDescription: scraped.metaDescription,
+          wordCount: scraped.wordCount,
+          content: scraped.content,
+          url: scraped.url,
+          sourceDomain,
+        }, itemsToSave.length)
+        console.log(`[Job ${id}]       factual_accuracy:        ${truthfulnessMetrics.factualAccuracy}`)
+        console.log(`[Job ${id}]       source_citation_quality: ${truthfulnessMetrics.sourceCitationQuality}`)
+        console.log(`[Job ${id}]       bias_indicator:          ${truthfulnessMetrics.biasIndicator}`)
+        console.log(`[Job ${id}]       claim_verifiability:     ${truthfulnessMetrics.claimVerifiability}`)
+        console.log(`[Job ${id}]       language_quality:        ${truthfulnessMetrics.languageQuality}`)
+        console.log(`[Job ${id}]       overall_truthfulness:    ${truthfulnessMetrics.overallTruthfulness}`)
+      }
 
       // Persist
       await this.truthfulnessScoresRepo.upsert(article.id, job.search_term ?? 'unknown', truthfulnessMetrics)

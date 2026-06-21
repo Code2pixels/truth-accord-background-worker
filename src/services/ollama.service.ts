@@ -1,8 +1,8 @@
 import type { OllamaContentScores, OllamaSimilarArticlesScore } from '../types.ts'
 
 const OLLAMA_BASE_URL = process.env['OLLAMA_BASE_URL'] ?? 'http://10.13.37.54:30068'
-const OLLAMA_MODEL = process.env['OLLAMA_MODEL'] ?? 'llama3.2'
-const OLLAMA_TIMEOUT_MS = Number(process.env['OLLAMA_TIMEOUT_MS'] ?? 15_000)
+const OLLAMA_MODEL = process.env['OLLAMA_MODEL'] ?? 'gemma4'
+const OLLAMA_TIMEOUT_MS = Number(process.env['OLLAMA_TIMEOUT_MS'] ?? 60_000)
 
 const CATEGORIES = [
   'politics', 'economics', 'science', 'health', 'technology',
@@ -16,6 +16,16 @@ const PROMPT_PREFIX = `You are a news article classifier. Given the title and su
 function clamp(val: unknown): number | null {
   if (typeof val !== 'number' || isNaN(val)) return null
   return Math.round(Math.min(100, Math.max(0, val)))
+}
+
+function extractJson(raw: string): string {
+  // Strip markdown code fences: ```json ... ``` or ``` ... ```
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fenced?.[1]) return fenced[1].trim()
+  // Fall back to first {...} block in case of leading/trailing prose
+  const braced = raw.match(/\{[\s\S]*\}/)
+  if (braced) return braced[0]
+  return raw
 }
 
 export class OllamaService {
@@ -42,13 +52,15 @@ Content (excerpt): ${content.slice(0, 500)}`
       })
       if (!res.ok) return { category: null, biasScore: null, languageScore: null }
       const data = await res.json() as { response?: string }
-      const raw = data.response?.trim() ?? ''
+      const rawResponse = data.response?.trim() ?? ''
+      console.log(`[OllamaService] scoreContentAndClassify raw response: ${rawResponse.slice(0, 300)}`)
+      const raw = extractJson(rawResponse)
       const parsed = JSON.parse(raw) as { category?: unknown; biasScore?: unknown; languageScore?: unknown }
-      const category = typeof parsed.category === 'string' && (CATEGORIES as readonly string[]).includes(parsed.category)
-        ? parsed.category
-        : null
+      const categoryRaw = typeof parsed.category === 'string' ? parsed.category.toLowerCase().trim() : null
+      const category = categoryRaw && (CATEGORIES as readonly string[]).includes(categoryRaw) ? categoryRaw : null
       return { category, biasScore: clamp(parsed.biasScore), languageScore: clamp(parsed.languageScore) }
-    } catch {
+    } catch (err) {
+      console.warn(`[OllamaService] scoreContentAndClassify parse error: ${err instanceof Error ? err.message : err}`)
       return { category: null, biasScore: null, languageScore: null }
     }
   }
@@ -81,7 +93,7 @@ Schema: {"similarArticlesScore":<0-100>}
       })
       if (!res.ok) return { similarArticlesScore: null }
       const data = await res.json() as { response?: string }
-      const raw = data.response?.trim() ?? ''
+      const raw = extractJson(data.response?.trim() ?? '')
       const parsed = JSON.parse(raw) as { similarArticlesScore?: unknown }
       return { similarArticlesScore: clamp(parsed.similarArticlesScore) }
     } catch {
