@@ -11,13 +11,12 @@ import type { ScrapeJob } from '../types.ts'
 import type { OllamaService } from '../services/ollama.service.ts'
 import { classifyTopic } from '../services/topic-classifier.ts'
 
-const MIN_SIMILARITY_TO_SAVE = 0.25
-
 export class ScrapeWorker {
   private isRunning = false
   private timer: NodeJS.Timeout | null = null
   private readonly concurrency: number
   private readonly maxRetries: number
+  private readonly minSimilarityScore: number
 
   constructor(
     private readonly scraper: ScraperService,
@@ -33,6 +32,13 @@ export class ScrapeWorker {
   ) {
     this.concurrency = Number(process.env['QUEUE_CONCURRENCY'] ?? 3)
     this.maxRetries = Number(process.env['MAX_RETRIES'] ?? 3)
+    const parsedThreshold = Number(process.env['SIMILAR_ARTICLE_MIN_SCORE'] ?? 0.25)
+    this.minSimilarityScore = Number.isFinite(parsedThreshold) && parsedThreshold >= 0 && parsedThreshold <= 1
+      ? parsedThreshold
+      : 0.25
+    if (!Number.isFinite(parsedThreshold) || parsedThreshold < 0 || parsedThreshold > 1) {
+      console.warn(`[ScrapeWorker] SIMILAR_ARTICLE_MIN_SCORE "${process.env['SIMILAR_ARTICLE_MIN_SCORE']}" is invalid — using default 0.25`)
+    }
   }
 
   start(intervalMs: number): void {
@@ -154,20 +160,30 @@ export class ScrapeWorker {
       })
       console.log(`[Job ${id}]       article.id: ${article.id}`)
 
-      // Step 6: Reference site crawl for similar articles
+      // Step 6: Similar articles — Ollama primary, heuristic fallback
       const title = scraped.title?.trim() ?? ''
-      const meta = scraped.metaDescription?.trim() ?? ''
-      console.log(`[Job ${id}] [6/7] Crawling reference feeds for similar articles...`)
-      console.log(`[Job ${id}]       keywords extracted from: "${title.slice(0, 80)}${title.length > 80 ? '…' : ''}"`)
-      const matchResult = await this.referenceSitesCrawl.getMatchingArticles(title, meta, scraped.content ?? '')
+      const metaDesc = scraped.metaDescription?.trim() ?? ''
+      console.log(`[Job ${id}] [6/7] Finding similar articles (Ollama primary, heuristic fallback)...`)
+
+      const rawCandidates = await this.referenceSitesCrawl.getAllFeedItems()
+      console.log(`[Job ${id}]       raw candidates from feeds: ${rawCandidates.length}`)
+
+      let similarItems = await this.ollama.findSimilarArticles(title, metaDesc, scraped.content ?? '', rawCandidates)
+
+      if (similarItems === null) {
+        console.warn(`[Job ${id}]       Ollama unavailable — falling back to heuristic matching`)
+        const matchResult = await this.referenceSitesCrawl.getMatchingArticles(title, metaDesc, scraped.content ?? '')
+        similarItems = matchResult.items
+      }
+
       const normalizedSourceDomain = sourceDomain.replace(/^www\./, '')
-      const itemsToSave = matchResult.items.filter((it) =>
-        (it.similarityScore ?? 0) >= MIN_SIMILARITY_TO_SAVE && it.sourceDomain !== normalizedSourceDomain,
+      const itemsToSave = similarItems.filter((it) =>
+        (it.similarityScore ?? 0) >= this.minSimilarityScore && it.sourceDomain !== normalizedSourceDomain,
       )
-      console.log(`[Job ${id}]       matches found: ${matchResult.count}, above threshold: ${itemsToSave.length}`)
+      console.log(`[Job ${id}]       matches found: ${similarItems.length}, above threshold (${this.minSimilarityScore}): ${itemsToSave.length}`)
       if (itemsToSave.length > 0) {
         for (const it of itemsToSave) {
-          console.log(`[Job ${id}]         • [${(it.similarityScore * 100).toFixed(1)}%] ${it.sourceDomain} — ${it.title ?? it.url}`)
+          console.log(`[Job ${id}]         • [${((it.similarityScore ?? 0) * 100).toFixed(1)}%] ${it.sourceDomain} — ${it.title ?? it.url}`)
         }
       }
 

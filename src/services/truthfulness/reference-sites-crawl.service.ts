@@ -15,6 +15,13 @@ export interface SimilarArticleItem {
   similarityScore: number
 }
 
+export interface RawFeedItem {
+  url: string
+  title: string
+  description: string
+  sourceDomain: string
+}
+
 export class ReferenceSitesCrawlService {
   private readonly parser: XMLParser
   private cachedSites: ReferenceSiteRecord[] | null = null
@@ -57,6 +64,29 @@ export class ReferenceSitesCrawlService {
     return { count: allItems.length, items: allItems }
   }
 
+  async getAllFeedItems(): Promise<RawFeedItem[]> {
+    const sites = await this.getSites()
+    const byUrl = new Map<string, RawFeedItem>()
+
+    await Promise.all(
+      sites.map(async (site) => {
+        try {
+          const items = await this.fetchFeedItems(site.feedUrl)
+          for (const it of items) {
+            if (!it.url?.trim().startsWith('http')) continue
+            if (!byUrl.has(it.url)) {
+              byUrl.set(it.url, { url: it.url, title: it.title, description: it.description, sourceDomain: site.domain })
+            }
+          }
+        } catch (err) {
+          console.warn(`[ReferenceCrawl] getAllFeedItems fetch failed: ${site.feedUrl}`, err instanceof Error ? err.message : err)
+        }
+      }),
+    )
+
+    return [...byUrl.values()]
+  }
+
   async getMatchingArticleCount(originalTitle: string, originalMeta: string, content = ''): Promise<number> {
     const { count } = await this.getMatchingArticles(originalTitle, originalMeta, content)
     return count
@@ -73,12 +103,7 @@ export class ReferenceSitesCrawlService {
     await Promise.all(
       sites.map(async (site) => {
         try {
-          const res = await globalThis.fetch(site.feedUrl, {
-            signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TruthAccordBot/1.0)', Accept: 'application/rss+xml, application/xml, text/xml' },
-          })
-          const xml = await res.text()
-          const items = this.getFeedItems(xml)
+          const items = await this.fetchFeedItems(site.feedUrl)
           for (const it of items) {
             const matched = this.getMatchedKeywords(it.title, it.description, keywords)
             if (matched.length < 1) continue
@@ -239,6 +264,15 @@ export class ReferenceSitesCrawlService {
     }
   }
 
+  private async fetchFeedItems(feedUrl: string): Promise<{ title: string; description: string; url: string }[]> {
+    const res = await globalThis.fetch(feedUrl, {
+      signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TruthAccordBot/1.0)', Accept: 'application/rss+xml, application/xml, text/xml' },
+    })
+    const xml = await res.text()
+    return this.getFeedItems(xml)
+  }
+
   private async getMatchesInFeed(
     feedUrl: string,
     sourceDomain: string,
@@ -247,12 +281,7 @@ export class ReferenceSitesCrawlService {
     namedEntities: Set<string>,
   ): Promise<SimilarArticleItem[]> {
     try {
-      const res = await globalThis.fetch(feedUrl, {
-        signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TruthAccordBot/1.0)', Accept: 'application/rss+xml, application/xml, text/xml' },
-      })
-      const xml = await res.text()
-      const items = this.getFeedItems(xml)
+      const items = await this.fetchFeedItems(feedUrl)
       const out: SimilarArticleItem[] = []
 
       for (const it of items) {
