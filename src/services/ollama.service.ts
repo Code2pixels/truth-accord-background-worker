@@ -4,6 +4,8 @@ import type { RawFeedItem, SimilarArticleItem } from './truthfulness/reference-s
 const OLLAMA_BASE_URL = process.env['OLLAMA_BASE_URL'] ?? 'http://10.13.37.54:30068'
 const OLLAMA_MODEL = process.env['OLLAMA_MODEL'] ?? 'gemma4'
 const OLLAMA_TIMEOUT_MS = Number(process.env['OLLAMA_TIMEOUT_MS'] ?? 60_000)
+const OLLAMA_NUM_CTX = positiveIntEnv('OLLAMA_NUM_CTX', 8192)
+const OLLAMA_EMBED_MODEL = process.env['OLLAMA_EMBED_MODEL'] ?? 'nomic-embed-text'
 
 const CATEGORIES = [
   'politics', 'economics', 'science', 'health', 'technology',
@@ -30,6 +32,34 @@ function extractJson(raw: string): string {
   const braced = raw.match(/\{[\s\S]*\}/)
   if (braced) return braced[0]
   return raw
+}
+
+export function positiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined) return fallback
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) {
+    console.warn(`[OllamaService] ${name}="${raw}" is invalid — using default ${fallback}`)
+    return fallback
+  }
+  return Math.floor(n)
+}
+
+export function cosineSimilarity(a: number[], b: number[]): number {
+  const len = Math.min(a.length, b.length)
+  let dot = 0, magA = 0, magB = 0
+  for (let i = 0; i < len; i++) {
+    const av = a[i] ?? 0
+    const bv = b[i] ?? 0
+    dot += av * bv
+    magA += av * av
+    magB += bv * bv
+  }
+  if (magA === 0 || magB === 0) return 0
+  // Guard against NaN from malformed (non-numeric) embedding rows — keeps sort order
+  // stable and prevents NaN leaking into similarityScore.
+  const result = dot / (Math.sqrt(magA) * Math.sqrt(magB))
+  return Number.isFinite(result) ? result : 0
 }
 
 export class OllamaService {
@@ -105,7 +135,7 @@ Schema: {"similarArticlesScore":<0-100>}
     }
   }
 
-  async findSimilarArticles(
+  private async scoreTopCandidates(
     originalTitle: string,
     originalMeta: string,
     originalContent: string,
@@ -113,13 +143,7 @@ Schema: {"similarArticlesScore":<0-100>}
   ): Promise<SimilarArticleItem[] | null> {
     if (candidates.length === 0) return []
 
-    const OLLAMA_MAX_CANDIDATES = Number(process.env['OLLAMA_MAX_CANDIDATES'] ?? 200)
-    const cappedCandidates = candidates.slice(0, OLLAMA_MAX_CANDIDATES)
-    if (candidates.length > OLLAMA_MAX_CANDIDATES) {
-      console.warn(`[OllamaService] findSimilarArticles: truncating ${candidates.length} candidates to ${OLLAMA_MAX_CANDIDATES}`)
-    }
-
-    const candidateList = cappedCandidates
+    const candidateList = candidates
       .map((c, i) => `${i + 1}. [${c.sourceDomain}] "${c.title}" — ${c.description.slice(0, 150)}`)
       .join('\n')
 
@@ -131,40 +155,38 @@ Content excerpt: ${originalContent.slice(0, 300)}
 Candidates:
 ${candidateList}
 
-Respond with ONLY a valid JSON array. Each element: {"index":<1-based number>,"similarityScore":<0-100>}
+Respond with ONLY a valid JSON array — no explanation, no markdown, no code fences. Each element: {"index":<1-based number>,"similarityScore":<0-100>}
 Only include candidates with a score above 0. Return an empty array if none are similar.
 0 = completely unrelated, 100 = same story reported by a different outlet.`
 
-    console.log(`[OllamaService] findSimilarArticles: sending ${cappedCandidates.length} candidates (prompt ~${prompt.length} chars)`)
     try {
       const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: false }),
+        body: JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: false, format: 'json', options: { num_ctx: OLLAMA_NUM_CTX } }),
         signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
       })
       if (!res.ok) {
-        const errBody = await res.text().catch(() => '(unreadable)')
-        console.warn(`[OllamaService] findSimilarArticles: HTTP ${res.status} — ${errBody.slice(0, 200)}`)
+        const errBody = typeof res.text === 'function' ? await res.text().catch(() => '(unreadable)') : '(unreadable)'
+        console.warn(`[OllamaService] scoreTopCandidates: HTTP ${res.status} — ${errBody.slice(0, 200)}`)
         return null
       }
       const data = await res.json() as { response?: string }
       const rawResponse = data.response?.trim() ?? ''
-      console.log(`[OllamaService] findSimilarArticles raw response: ${rawResponse.slice(0, 300)}`)
+      console.log(`[OllamaService] scoreTopCandidates raw response: ${rawResponse.slice(0, 300)}`)
       const raw = extractJson(rawResponse)
       const parsed = JSON.parse(raw) as unknown
       if (!Array.isArray(parsed)) {
-        console.warn(`[OllamaService] findSimilarArticles: expected array, got ${typeof parsed} — raw: ${rawResponse.slice(0, 200)}`)
+        console.warn(`[OllamaService] scoreTopCandidates: expected array, got ${typeof parsed} — raw: ${rawResponse.slice(0, 200)}`)
         return null
       }
-
       const results: SimilarArticleItem[] = []
       for (const entry of parsed) {
         if (typeof entry !== 'object' || entry === null) continue
         const { index, similarityScore } = entry as { index?: unknown; similarityScore?: unknown }
         if (typeof index !== 'number' || typeof similarityScore !== 'number') continue
-        if (index < 1 || index > cappedCandidates.length) continue
-        const candidate = cappedCandidates[index - 1]
+        if (index < 1 || index > candidates.length) continue
+        const candidate = candidates[index - 1]
         if (!candidate) continue
         const clamped = clamp(similarityScore)
         const score = clamped === null ? 0 : clamped / 100
@@ -178,9 +200,57 @@ Only include candidates with a score above 0. Return an empty array if none are 
       }
       return results
     } catch (err) {
-      console.warn(`[OllamaService] findSimilarArticles failed: ${err instanceof Error ? err.message : err}`)
+      console.warn(`[OllamaService] scoreTopCandidates failed: ${err instanceof Error ? err.message : err}`)
       return null
     }
+  }
+
+  async findSimilarArticles(
+    originalTitle: string,
+    originalMeta: string,
+    originalContent: string,
+    candidates: RawFeedItem[],
+  ): Promise<SimilarArticleItem[] | null> {
+    if (candidates.length === 0) return []
+
+    const maxCandidates = positiveIntEnv('OLLAMA_MAX_CANDIDATES', 200)
+    const topK = positiveIntEnv('OLLAMA_PREFILTER_TOPK', 20)
+    const capped = candidates.slice(0, maxCandidates)
+    if (candidates.length > maxCandidates) {
+      console.warn(`[OllamaService] findSimilarArticles: truncating ${candidates.length} candidates to ${maxCandidates}`)
+    }
+
+    const originalText = [originalTitle, originalMeta, originalContent.slice(0, 500)].filter(Boolean).join('. ')
+    const candidateTexts = capped.map((c) => [c.title, c.description].filter(Boolean).join('. '))
+
+    // Tier 3: embeddings unavailable → null → worker uses keyword heuristic
+    const embeddings = await this.embed([originalText, ...candidateTexts])
+    if (embeddings === null || embeddings.length !== candidateTexts.length + 1) {
+      console.warn('[OllamaService] findSimilarArticles: embedding failed or count mismatch — returning null for heuristic fallback')
+      return null
+    }
+
+    const originalVec = embeddings[0] ?? []
+    const ranked = capped
+      .map((candidate, i) => ({ candidate, cosine: cosineSimilarity(originalVec, embeddings[i + 1] ?? []) }))
+      .sort((a, b) => b.cosine - a.cosine)
+      .slice(0, topK)
+
+    console.log(`[OllamaService] findSimilarArticles: embedded ${capped.length} candidates, scoring top ${ranked.length} with ${OLLAMA_MODEL}`)
+
+    // Tier 1: gemma scores the top-K
+    const generated = await this.scoreTopCandidates(originalTitle, originalMeta, originalContent, ranked.map((r) => r.candidate))
+    if (generated !== null) return generated
+
+    // Tier 2: generate failed — fall back to cosine scores on top-K
+    console.warn('[OllamaService] findSimilarArticles: generate step failed — using cosine similarity scores')
+    return ranked.map((r) => ({
+      url: r.candidate.url,
+      title: r.candidate.title || null,
+      sourceDomain: r.candidate.sourceDomain,
+      matchedKeywords: [],
+      similarityScore: Math.min(1, Math.max(0, r.cosine)),
+    }))
   }
 
   async classifyTopic(title: string, summary: string): Promise<string | null> {
@@ -197,6 +267,31 @@ Only include candidates with a score above 0. Return an empty array if none are 
       const raw = data.response?.trim().toLowerCase().replace(/[^a-z]/g, '') ?? ''
       return (CATEGORIES as readonly string[]).includes(raw) ? raw : null
     } catch {
+      return null
+    }
+  }
+
+  async embed(inputs: string[]): Promise<number[][] | null> {
+    if (inputs.length === 0) return []
+    try {
+      const res = await fetch(`${OLLAMA_BASE_URL}/api/embed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: OLLAMA_EMBED_MODEL, input: inputs }),
+        signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
+      })
+      if (!res.ok) {
+        console.warn(`[OllamaService] embed: HTTP ${res.status}`)
+        return null
+      }
+      const data = await res.json() as { embeddings?: unknown }
+      if (!Array.isArray(data.embeddings)) {
+        console.warn('[OllamaService] embed: response missing embeddings array')
+        return null
+      }
+      return data.embeddings as number[][]
+    } catch (err) {
+      console.warn(`[OllamaService] embed failed: ${err instanceof Error ? err.message : err}`)
       return null
     }
   }
