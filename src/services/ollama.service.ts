@@ -135,6 +135,7 @@ Respond with ONLY a valid JSON array. Each element: {"index":<1-based number>,"s
 Only include candidates with a score above 0. Return an empty array if none are similar.
 0 = completely unrelated, 100 = same story reported by a different outlet.`
 
+    console.log(`[OllamaService] findSimilarArticles: sending ${cappedCandidates.length} candidates (prompt ~${prompt.length} chars)`)
     try {
       const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
         method: 'POST',
@@ -142,11 +143,20 @@ Only include candidates with a score above 0. Return an empty array if none are 
         body: JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: false }),
         signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
       })
-      if (!res.ok) return null
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '(unreadable)')
+        console.warn(`[OllamaService] findSimilarArticles: HTTP ${res.status} — ${errBody.slice(0, 200)}`)
+        return null
+      }
       const data = await res.json() as { response?: string }
-      const raw = extractJson(data.response?.trim() ?? '')
+      const rawResponse = data.response?.trim() ?? ''
+      console.log(`[OllamaService] findSimilarArticles raw response: ${rawResponse.slice(0, 300)}`)
+      const raw = extractJson(rawResponse)
       const parsed = JSON.parse(raw) as unknown
-      if (!Array.isArray(parsed)) return null
+      if (!Array.isArray(parsed)) {
+        console.warn(`[OllamaService] findSimilarArticles: expected array, got ${typeof parsed} — raw: ${rawResponse.slice(0, 200)}`)
+        return null
+      }
 
       const results: SimilarArticleItem[] = []
       for (const entry of parsed) {
