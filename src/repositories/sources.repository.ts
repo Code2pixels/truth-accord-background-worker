@@ -23,4 +23,13 @@ export class SourcesRepository {
       [domain],
     )
   }
+
+  /**
+   * Recomputes the per-source approved-article counts read by the API. Uses
+   * CONCURRENTLY so reads against the view are never blocked during refresh
+   * (requires the unique index defined in the matview migration).
+   */
+  async refreshArticleCounts(): Promise<void> {
+    await query(`REFRESH MATERIALIZED VIEW CONCURRENTLY sources.article_counts`)
+  }
 }

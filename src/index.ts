@@ -1,3 +1,4 @@
+import cron from 'node-cron'
 import { pool } from './db/client.ts'
 import { WorkerJobsRepository } from './repositories/worker-jobs.repository.ts'
 import { ArticlesRepository } from './repositories/articles.repository.ts'
@@ -57,6 +58,20 @@ async function main(): Promise<void> {
   scrapeWorker.start(pollIntervalMs)
   waybackRecheckWorker.schedule()
   rssFeedWorker.schedule()
+
+  // Keep the API's per-source article counts (sources.article_counts matview)
+  // fresh. Runs on its own cron so reads stay O(sources) no matter how large
+  // articles.records grows.
+  const articleCountsCron = process.env['ARTICLE_COUNTS_REFRESH_CRON'] ?? '*/15 * * * *'
+  cron.schedule(articleCountsCron, () => {
+    void sourcesRepo
+      .refreshArticleCounts()
+      .then(() => console.log('[main] Refreshed sources.article_counts'))
+      .catch((err: unknown) =>
+        console.error('[main] Failed to refresh sources.article_counts:', err instanceof Error ? err.message : err),
+      )
+  })
+  console.log(`[main] sources.article_counts refresh scheduled — cron: ${articleCountsCron}`)
 
   console.log('[main] Background worker running')
 
