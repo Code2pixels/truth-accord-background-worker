@@ -237,7 +237,7 @@ describe('OllamaService.findSimilarArticles', () => {
     }
   })
 
-  it('requests JSON mode and an expanded context window on the generate call', async (t) => {
+  it('requests JSON mode on the generate call without forcing a custom num_ctx', async (t) => {
     const fetchMock = makeRoutedMock({ embed: embedBody, generate: '[]' })
     t.mock.method(globalThis, 'fetch', fetchMock as unknown as typeof fetch)
 
@@ -247,7 +247,9 @@ describe('OllamaService.findSimilarArticles', () => {
     assert.ok(genCall)
     const body = JSON.parse(((genCall!.arguments as unknown[])[1] as { body: string }).body) as { format?: string; options?: { num_ctx?: number } }
     assert.equal(body.format, 'json')
-    assert.ok((body.options?.num_ctx ?? 0) >= 8192)
+    // No num_ctx override: keeps gemma at its default context so it isn't reloaded
+    // between the small classify/score calls and this one (a reload caused timeouts).
+    assert.equal(body.options?.num_ctx, undefined)
   })
 })
 

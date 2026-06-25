@@ -4,7 +4,6 @@ import type { RawFeedItem, SimilarArticleItem } from './truthfulness/reference-s
 const OLLAMA_BASE_URL = process.env['OLLAMA_BASE_URL'] ?? 'http://10.13.37.54:30068'
 const OLLAMA_MODEL = process.env['OLLAMA_MODEL'] ?? 'gemma4'
 const OLLAMA_TIMEOUT_MS = Number(process.env['OLLAMA_TIMEOUT_MS'] ?? 60_000)
-const OLLAMA_NUM_CTX = positiveIntEnv('OLLAMA_NUM_CTX', 8192)
 const OLLAMA_EMBED_MODEL = process.env['OLLAMA_EMBED_MODEL'] ?? 'nomic-embed-text'
 
 const CATEGORIES = [
@@ -147,7 +146,9 @@ Schema: {"similarArticlesScore":<0-100>}
       .map((c, i) => `${i + 1}. [${c.sourceDomain}] "${c.title}" — ${c.description.slice(0, 150)}`)
       .join('\n')
 
-    const prompt = `You are a news similarity analyst. Given an original article and a list of candidates, identify which candidates cover the same news story.
+    const prompt = `You are a news similarity analyst. Identify which candidate articles report on the SAME specific news story as the original.
+
+Same story means the same specific event: the same people, organisations, place, and time frame — not merely the same general topic. Two articles can both be about "the economy" or "the election" and still be completely different stories. Be strict: most candidates will NOT be the same story and must score low.
 
 Original: "${originalTitle}" — ${originalMeta}
 Content excerpt: ${originalContent.slice(0, 300)}
@@ -156,14 +157,14 @@ Candidates:
 ${candidateList}
 
 Respond with ONLY a valid JSON array — no explanation, no markdown, no code fences. Each element: {"index":<1-based number>,"similarityScore":<0-100>}
-Only include candidates with a score above 0. Return an empty array if none are similar.
-0 = completely unrelated, 100 = same story reported by a different outlet.`
+Only include candidates that report the same specific event. Omit anything that is merely the same topic. Return an empty array if none match.
+0 = unrelated or merely same topic, 80-100 = clearly the same specific story from a different outlet.`
 
     try {
       const res = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: false, format: 'json', options: { num_ctx: OLLAMA_NUM_CTX } }),
+        body: JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: false, format: 'json' }),
         signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
       })
       if (!res.ok) {
