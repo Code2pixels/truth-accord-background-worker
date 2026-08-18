@@ -17,6 +17,9 @@ interface RawJobRow {
   last_error: string | null
 }
 
+/** Injectable query function for the research-job insert, narrowed so tests can pass a plain stub. */
+type InsertQueryFn = (sql: string, params?: unknown[]) => Promise<Array<{ id: string }>>
+
 function toScrapeJob(row: RawJobRow): ScrapeJob {
   return {
     id: row.id,
@@ -30,6 +33,20 @@ function toScrapeJob(row: RawJobRow): ScrapeJob {
 }
 
 export class WorkerJobsRepository {
+  constructor(private readonly q: InsertQueryFn = query) {}
+
+  async createResearchJob(articleId: string, url: string, searchTerm: string | null): Promise<boolean> {
+    const payload = JSON.stringify({ article_id: articleId, url, search_term: searchTerm })
+    const rows = await this.q(
+      `INSERT INTO worker.jobs (type, payload)
+       VALUES ('research_article', $1)
+       ON CONFLICT DO NOTHING
+       RETURNING id`,
+      [payload],
+    )
+    return rows.length > 0
+  }
+
   async create(url: string, searchTerm?: string | null): Promise<ScrapeJob> {
     const payload = JSON.stringify({ url, search_term: searchTerm ?? null })
     const row = await queryOne<RawJobRow>(

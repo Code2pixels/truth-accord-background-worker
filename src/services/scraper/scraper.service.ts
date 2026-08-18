@@ -28,7 +28,7 @@ export class ScraperService {
       raw = await this.dynamicScraper.fetch(url)
     }
 
-    const extracted = this.staticScraper.extractArticleData(raw.html)
+    const extracted = this.staticScraper.extractArticleData(raw.html, raw.url)
     const paywallSignals = this.detectPaywall(raw.html, extracted.wordCount)
     const paywallDetected = this.isPaywalled(paywallSignals)
 
