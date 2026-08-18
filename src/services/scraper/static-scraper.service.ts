@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio'
-import type { RawPageData, ExtractedArticleData } from './scraper.interfaces.ts'
+import type { RawPageData, ExtractedArticleData, OutboundLink } from './scraper.interfaces.ts'
 
 export class StaticScraperService {
   private readonly timeoutMs: number
@@ -17,7 +17,7 @@ export class StaticScraperService {
     return { html, url, usedBrowser: false }
   }
 
-  extractArticleData(html: string): ExtractedArticleData {
+  extractArticleData(html: string, pageUrl: string): ExtractedArticleData {
     const $ = cheerio.load(html)
 
     const title =
@@ -49,6 +49,27 @@ export class StaticScraperService {
           ? $('[role="main"]')
           : $('body')
 
+    const links: OutboundLink[] = []
+    const seen = new Set<string>()
+    contentEl.find('a[href]').each((_, el) => {
+      const href = $(el).attr('href')?.trim()
+      if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('javascript:')) return
+      let absolute: string
+      try {
+        absolute = new URL(href, pageUrl).toString()
+      } catch {
+        return
+      }
+      if (!absolute.startsWith('http')) return
+      if (seen.has(absolute)) return
+      seen.add(absolute)
+      links.push({
+        url: absolute,
+        anchor: $(el).text().replace(/\s+/g, ' ').trim() || null,
+        rel: $(el).attr('rel') ?? null,
+      })
+    })
+
     contentEl.find('script, style, nav, footer, aside, [class*="ad"], [id*="ad"]').remove()
 
     const rawContent = contentEl.text().replace(/\s+/g, ' ').trim()
@@ -62,6 +83,7 @@ export class StaticScraperService {
       publishedAt: publishedAt ?? null,
       metaDescription: metaDescription ?? null,
       wordCount,
+      links,
     }
   }
 

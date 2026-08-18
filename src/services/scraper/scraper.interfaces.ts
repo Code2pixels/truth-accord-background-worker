@@ -1,3 +1,9 @@
+export interface OutboundLink {
+  url: string
+  anchor: string | null
+  rel: string | null
+}
+
 export interface ScrapedArticle {
   url: string
   title: string | null
@@ -9,6 +15,7 @@ export interface ScrapedArticle {
   isArchived: boolean
   snapshotTimestamp: string | null
   paywallDetected: boolean
+  links: OutboundLink[]
 }
 
 export interface ScraperOptions {
@@ -29,6 +36,7 @@ export interface ExtractedArticleData {
   publishedAt: string | null
   metaDescription: string | null
   wordCount: number | null
+  links: OutboundLink[]
 }
 
 export interface PaywallSignals {

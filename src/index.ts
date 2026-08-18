@@ -2,22 +2,17 @@ import cron from 'node-cron'
 import { pool } from './db/client.ts'
 import { WorkerJobsRepository } from './repositories/worker-jobs.repository.ts'
 import { ArticlesRepository } from './repositories/articles.repository.ts'
-import { ArticleTruthfulnessScoresRepository } from './repositories/article-truthfulness-scores.repository.ts'
-import { SimilarArticlesRepository } from './repositories/similar-articles.repository.ts'
+import { ArticleContentRepository } from './repositories/article-content.repository.ts'
 import { SourcesRepository } from './repositories/sources.repository.ts'
 import { StaticScraperService } from './services/scraper/static-scraper.service.ts'
 import { DynamicScraperService } from './services/scraper/dynamic-scraper.service.ts'
 import { ScraperService } from './services/scraper/scraper.service.ts'
 import { WaybackService } from './services/wayback/wayback.service.ts'
-import { ReferenceSitesCrawlService } from './services/truthfulness/reference-sites-crawl.service.ts'
-import { TruthfulnessService } from './services/truthfulness/truthfulness.service.ts'
 import { ArticlesService } from './services/articles.service.ts'
-import { OllamaService } from './services/ollama.service.ts'
 import { ScrapeWorker } from './workers/scrape-worker.ts'
 import { WaybackRecheckWorker } from './workers/wayback-recheck.ts'
 import { RssFeedWorker } from './workers/rss-feed.worker.ts'
 import { RssSourcesRepository } from './repositories/rss-sources.repository.ts'
-import { ReferenceSitesRepository } from './repositories/reference-sites.repository.ts'
 
 async function main(): Promise<void> {
   if (!process.env['DATABASE_URL']) {
@@ -31,25 +26,19 @@ async function main(): Promise<void> {
   const workerJobsRepo = new WorkerJobsRepository()
   const rssSourcesRepo = new RssSourcesRepository()
   const articlesRepo = new ArticlesRepository()
-  const truthfulnessScoresRepo = new ArticleTruthfulnessScoresRepository()
-  const similarArticlesRepo = new SimilarArticlesRepository()
+  const articleContentRepo = new ArticleContentRepository()
   const sourcesRepo = new SourcesRepository()
-  const referenceSitesRepo = new ReferenceSitesRepository()
 
   // Services
   const staticScraper = new StaticScraperService()
   const dynamicScraper = new DynamicScraperService()
   const scraper = new ScraperService(staticScraper, dynamicScraper)
   const wayback = new WaybackService()
-  const referenceSitesCrawl = new ReferenceSitesCrawlService(referenceSitesRepo)
-  const truthfulness = new TruthfulnessService(referenceSitesCrawl)
   const articles = new ArticlesService(articlesRepo)
-  const ollama = new OllamaService()
 
   // Workers
   const scrapeWorker = new ScrapeWorker(
-    scraper, wayback, articles, workerJobsRepo, truthfulnessScoresRepo,
-    similarArticlesRepo, truthfulness, referenceSitesCrawl, sourcesRepo, ollama,
+    scraper, wayback, articles, workerJobsRepo, articleContentRepo, sourcesRepo,
   )
   const waybackRecheckWorker = new WaybackRecheckWorker(workerJobsRepo, wayback)
 
