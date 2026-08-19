@@ -4,6 +4,7 @@ import cron from 'node-cron'
 import type { RssSourcesRepository } from '../repositories/rss-sources.repository.ts'
 import type { WorkerJobsRepository } from '../repositories/worker-jobs.repository.ts'
 import { feedCategoryVerdict, isAllowedTopic } from '../services/topic-classifier.ts'
+import { bad, dim, ok, tag, value, warn } from '../utils/log.util.ts'
 
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
 
@@ -128,7 +129,7 @@ export class RssFeedWorker {
   schedule(): void {
     const cronExpr = process.env['RSS_FEED_CRON'] ?? '*/30 * * * *'
     cron.schedule(cronExpr, () => void this.run())
-    console.log(`[RssFeedWorker] Scheduled — cron: ${cronExpr}`)
+    console.log(`${tag('RssFeedWorker')} Scheduled — cron: ${value(cronExpr)}`)
     void this.run()
   }
 
@@ -136,9 +137,9 @@ export class RssFeedWorker {
     const batchSize = Number(process.env['RSS_FEED_BATCH_SIZE'] ?? 3)
     const batchDelayMs = Number(process.env['RSS_FEED_BATCH_DELAY_MS'] ?? 5_000)
 
-    console.log('[RssFeedWorker] Starting feed poll')
+    console.log(`${tag('RssFeedWorker')} Starting feed poll`)
     const sources = await this.rssSourcesRepo.findAllActive()
-    console.log(`[RssFeedWorker] ${sources.length} active source(s), batch size: ${batchSize}, delay: ${batchDelayMs}ms`)
+    console.log(`${tag('RssFeedWorker')} ${value(sources.length)} active source(s), batch size: ${batchSize}, delay: ${batchDelayMs}ms`)
 
     let totalQueued = 0
     let totalSkipped = 0
@@ -175,19 +176,19 @@ export class RssFeedWorker {
               else skipped++
             } catch (err) {
               failed++
-              console.warn(`[RssFeedWorker] ${source.name}: failed to queue ${url}: ${err instanceof Error ? err.message : err}`)
+              console.warn(`${tag('RssFeedWorker')} ${source.name}: ${warn(`failed to queue ${url}`)}: ${err instanceof Error ? err.message : err}`)
             }
           }
 
-          console.log(`[RssFeedWorker] ${source.name}: ${items.length} items — ${queued} queued, ${skipped} skipped${offTarget > 0 ? `, ${offTarget} off-target` : ''}${failed > 0 ? `, ${failed} failed` : ''}`)
+          console.log(`${tag('RssFeedWorker')} ${source.name}: ${items.length} items — ${queued > 0 ? ok(`${queued} queued`) : `${queued} queued`}, ${dim(`${skipped} skipped`)}${offTarget > 0 ? dim(`, ${offTarget} off-target`) : ''}${failed > 0 ? `, ${bad(`${failed} failed`)}` : ''}`)
           totalQueued += queued
           totalSkipped += skipped
         } catch (err) {
-          console.error(`[RssFeedWorker] Failed to poll ${source.name} (${source.rss_url}): ${err instanceof Error ? err.message : err}`)
+          console.error(`${tag('RssFeedWorker')} ${bad(`Failed to poll ${source.name}`)} (${source.rss_url}): ${err instanceof Error ? err.message : err}`)
         }
       }))
     }
 
-    console.log(`[RssFeedWorker] Done — total queued: ${totalQueued}, skipped: ${totalSkipped}`)
+    console.log(`${tag('RssFeedWorker')} Done — total queued: ${ok(String(totalQueued))}, skipped: ${dim(String(totalSkipped))}`)
   }
 }

@@ -5,6 +5,7 @@ import type { WorkerJobsRepository } from '../repositories/worker-jobs.repositor
 import type { ArticleContentRepository } from '../repositories/article-content.repository.ts'
 import type { SourcesRepository } from '../repositories/sources.repository.ts'
 import type { ScrapeJob } from '../types.ts'
+import { bad, dim, jobId, ok, step, tag, value, warn } from '../utils/log.util.ts'
 
 export class ScrapeWorker {
   private isRunning = false
@@ -26,12 +27,12 @@ export class ScrapeWorker {
 
   start(intervalMs: number): void {
     this.timer = setInterval(() => void this.poll(), intervalMs)
-    console.log(`[ScrapeWorker] Started — polling every ${intervalMs}ms, concurrency=${this.concurrency}, maxRetries=${this.maxRetries}`)
+    console.log(`${tag('ScrapeWorker')} Started — polling every ${value(intervalMs)}ms, concurrency=${value(this.concurrency)}, maxRetries=${value(this.maxRetries)}`)
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer)
-    console.log('[ScrapeWorker] Stopped')
+    console.log(`${tag('ScrapeWorker')} Stopped`)
   }
 
   private async poll(): Promise<void> {
@@ -39,15 +40,15 @@ export class ScrapeWorker {
     this.isRunning = true
     try {
       const reset = await this.workerJobsRepo.resetStuckRunning(5)
-      if (reset > 0) console.log(`[ScrapeWorker] Reset ${reset} stuck job(s) back to pending`)
+      if (reset > 0) console.log(`${tag('ScrapeWorker')} ${warn(`Reset ${reset} stuck job(s) back to pending`)}`)
 
       const jobs = await this.workerJobsRepo.claimPending(this.concurrency)
       if (jobs.length === 0) return
 
-      console.log(`[ScrapeWorker] Claimed ${jobs.length} job(s)`)
+      console.log(`${tag('ScrapeWorker')} Claimed ${value(jobs.length)} job(s)`)
       await Promise.all(jobs.map((job) => this.processJob(job)))
     } catch (err) {
-      console.error('[ScrapeWorker] Poll error:', err instanceof Error ? err.message : err)
+      console.error(`${tag('ScrapeWorker')} ${bad('Poll error:')}`, err instanceof Error ? err.message : err)
     } finally {
       this.isRunning = false
     }
@@ -56,54 +57,55 @@ export class ScrapeWorker {
   private async processJob(job: ScrapeJob): Promise<void> {
     const { id, url } = job
     const t0 = Date.now()
-    console.log(`[Job ${id}] ── START ──────────────────────────────`)
-    console.log(`[Job ${id}] URL:         ${url}`)
-    console.log(`[Job ${id}] Search term: ${job.search_term ?? '(none)'}`)
-    console.log(`[Job ${id}] Attempt:     ${job.attempts + 1}/${job.max_attempts}`)
+    const prefix = jobId(id)
+    console.log(`${prefix} ${dim('── START ──────────────────────────────')}`)
+    console.log(`${prefix} URL:         ${value(url)}`)
+    console.log(`${prefix} Search term: ${job.search_term ?? dim('(none)')}`)
+    console.log(`${prefix} Attempt:     ${job.attempts + 1}/${job.max_attempts}`)
 
     try {
       // Step 1: Scrape
-      console.log(`[Job ${id}] [1/4] Fetching URL...`)
+      console.log(`${prefix} ${step(1, 4)} Fetching URL...`)
       let scraped = await this.scraper.scrape(url)
       const sourceDomain = new URL(url).hostname
-      console.log(`[Job ${id}]       title:       ${scraped.title ?? '(none)'}`)
-      console.log(`[Job ${id}]       author:      ${scraped.author ?? '(none)'}`)
-      console.log(`[Job ${id}]       word count:  ${scraped.wordCount ?? 0}`)
-      console.log(`[Job ${id}]       published:   ${scraped.publishedAt ?? '(unknown)'}`)
-      console.log(`[Job ${id}]       paywall:     ${scraped.paywallDetected}`)
-      console.log(`[Job ${id}]       links:       ${scraped.links.length}`)
+      console.log(`${prefix}       title:       ${scraped.title ?? dim('(none)')}`)
+      console.log(`${prefix}       author:      ${scraped.author ?? dim('(none)')}`)
+      console.log(`${prefix}       word count:  ${scraped.wordCount ?? 0}`)
+      console.log(`${prefix}       published:   ${scraped.publishedAt ?? dim('(unknown)')}`)
+      console.log(`${prefix}       paywall:     ${scraped.paywallDetected ? warn('yes') : dim('no')}`)
+      console.log(`${prefix}       links:       ${scraped.links.length}`)
 
       // Step 2: Paywall / Wayback fallback
       if (scraped.paywallDetected) {
-        console.warn(`[Job ${id}] [2/4] Paywall detected — marking ${sourceDomain} and checking Wayback Machine...`)
+        console.warn(`${prefix} ${step(2, 4)} ${warn(`Paywall detected — marking ${sourceDomain} and checking Wayback Machine...`)}`)
         await this.sourcesRepo.markPaywall(sourceDomain)
 
         const snapshot = await this.wayback.getLatestSnapshot(url)
         if (snapshot) {
-          console.log(`[Job ${id}]       Wayback snapshot found: ${snapshot.url} (${snapshot.timestamp})`)
+          console.log(`${prefix}       Wayback snapshot found: ${value(snapshot.url)} (${snapshot.timestamp})`)
           scraped = await this.scraper.scrape(snapshot.url, { forceStatic: true })
           scraped.isArchived = true
           scraped.snapshotTimestamp = snapshot.timestamp
           scraped.url = url
-          console.log(`[Job ${id}]       Re-scraped via archive — word count: ${scraped.wordCount ?? 0}`)
+          console.log(`${prefix}       Re-scraped via archive — word count: ${scraped.wordCount ?? 0}`)
         } else {
-          console.warn(`[Job ${id}]       No Wayback snapshot available — marking unarchivable, failing job`)
+          console.warn(`${prefix}       ${warn('No Wayback snapshot available — marking unarchivable, failing job')}`)
           await this.sourcesRepo.markUnarchivable(sourceDomain)
           await this.workerJobsRepo.failWithRetry(id, 'Paywalled — no archive snapshot found')
-          console.log(`[Job ${id}] ── FAILED (paywall, no archive) [${Date.now() - t0}ms] ──`)
+          console.log(`${prefix} ${bad('── FAILED (paywall, no archive)')} ${dim(`[${Date.now() - t0}ms]`)}`)
           return
         }
       } else {
-        console.log(`[Job ${id}] [2/4] No paywall detected`)
+        console.log(`${prefix} ${step(2, 4)} No paywall detected`)
       }
 
       // Step 3: Ensure source domain is tracked
-      console.log(`[Job ${id}] [3/4] Ensuring source domain: ${sourceDomain}`)
+      console.log(`${prefix} ${step(3, 4)} Ensuring source domain: ${value(sourceDomain)}`)
       await this.sourcesRepo.ensureExists(sourceDomain)
 
       // Step 4: Hand off to the research service. The article lands as `pending`
       // with no category — truth-accord-research decides both.
-      console.log(`[Job ${id}] [4/4] Upserting article and queueing research...`)
+      console.log(`${prefix} ${step(4, 4)} Upserting article and queueing research...`)
       const article = await this.articles.upsert({
         url: scraped.url,
         title: scraped.title,
@@ -117,23 +119,23 @@ export class ScrapeWorker {
         status: 'pending',
         category: null,
       })
-      console.log(`[Job ${id}]       article.id: ${article.id}`)
+      console.log(`${prefix}       article.id: ${value(article.id)}`)
 
       await this.articleContentRepo.upsert(article.id, scraped.content ?? '', scraped.links)
       const queued = await this.workerJobsRepo.createResearchJob(article.id, scraped.url, job.search_term)
-      if (!queued) console.log(`[Job ${id}]       research job already queued for ${article.id}`)
+      if (!queued) console.log(`${prefix}       ${dim(`research job already queued for ${article.id}`)}`)
       await this.workerJobsRepo.updateStatus(id, 'completed')
 
       const elapsed = Date.now() - t0
-      console.log(`[Job ${id}] ── COMPLETED [${elapsed}ms] ──────────────`)
+      console.log(`${prefix} ${ok('── COMPLETED')} ${dim(`[${elapsed}ms] ──────────────`)}`)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       const stack = err instanceof Error ? err.stack : undefined
-      console.error(`[Job ${id}] ── ERROR ──────────────────────────────`)
-      console.error(`[Job ${id}] ${message}`)
-      if (stack) console.error(`[Job ${id}] ${stack}`)
+      console.error(`${prefix} ${bad('── ERROR ──────────────────────────────')}`)
+      console.error(`${prefix} ${bad(message)}`)
+      if (stack) console.error(`${prefix} ${dim(stack)}`)
       await this.workerJobsRepo.failWithRetry(id, message)
-      console.log(`[Job ${id}] ── FAILED (attempt ${job.attempts + 1}/${job.max_attempts}) [${Date.now() - t0}ms] ──`)
+      console.log(`${prefix} ${bad(`── FAILED (attempt ${job.attempts + 1}/${job.max_attempts})`)} ${dim(`[${Date.now() - t0}ms]`)}`)
     }
   }
 }

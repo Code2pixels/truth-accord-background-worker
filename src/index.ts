@@ -13,10 +13,11 @@ import { ScrapeWorker } from './workers/scrape-worker.ts'
 import { WaybackRecheckWorker } from './workers/wayback-recheck.ts'
 import { RssFeedWorker } from './workers/rss-feed.worker.ts'
 import { RssSourcesRepository } from './repositories/rss-sources.repository.ts'
+import { bad, ok, tag, warn } from './utils/log.util.ts'
 
 async function main(): Promise<void> {
   if (!process.env['DATABASE_URL']) {
-    console.error('DATABASE_URL environment variable is required')
+    console.error(bad('DATABASE_URL environment variable is required'))
     process.exit(1)
   }
 
@@ -55,17 +56,17 @@ async function main(): Promise<void> {
   cron.schedule(articleCountsCron, () => {
     void sourcesRepo
       .refreshArticleCounts()
-      .then(() => console.log('[main] Refreshed sources.article_counts'))
+      .then(() => console.log(`${tag('main')} Refreshed sources.article_counts`))
       .catch((err: unknown) =>
-        console.error('[main] Failed to refresh sources.article_counts:', err instanceof Error ? err.message : err),
+        console.error(`${tag('main')} ${bad('Failed to refresh sources.article_counts:')}`, err instanceof Error ? err.message : err),
       )
   })
-  console.log(`[main] sources.article_counts refresh scheduled — cron: ${articleCountsCron}`)
+  console.log(`${tag('main')} sources.article_counts refresh scheduled — cron: ${articleCountsCron}`)
 
-  console.log('[main] Background worker running')
+  console.log(`${tag('main')} ${ok('Background worker running')}`)
 
   async function shutdown(): Promise<void> {
-    console.log('[main] Shutting down...')
+    console.log(`${tag('main')} Shutting down...`)
     scrapeWorker.stop()
     await dynamicScraper.destroy()
     await pool.end()
@@ -89,21 +90,21 @@ async function main(): Promise<void> {
   process.on('uncaughtException', (err) => {
     const code = (err as NodeJS.ErrnoException).code
     if (TRANSIENT_NETWORK_CODES.has(code ?? '')) {
-      console.warn(`[main] Swallowed transient network error (${code ?? err.name}): ${err.message}`)
+      console.warn(`${tag('main')} ${warn(`Swallowed transient network error (${code ?? err.name})`)}: ${err.message}`)
       return
     }
-    console.error('[main] Uncaught exception — shutting down:', err)
+    console.error(`${tag('main')} ${bad('Uncaught exception — shutting down:')}`, err)
     void shutdown()
   })
 
   // Prevent unhandled promise rejections from crashing the process.
   // Individual workers catch their own errors; this is a last-resort safety net.
   process.on('unhandledRejection', (reason) => {
-    console.error('[main] Unhandled rejection:', reason instanceof Error ? reason.message : reason)
+    console.error(`${tag('main')} ${bad('Unhandled rejection:')}`, reason instanceof Error ? reason.message : reason)
   })
 }
 
 main().catch((err: unknown) => {
-  console.error('[main] Fatal error:', err)
+  console.error(`${tag('main')} ${bad('Fatal error:')}`, err)
   process.exit(1)
 })
