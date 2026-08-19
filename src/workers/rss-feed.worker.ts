@@ -3,7 +3,7 @@ import { XMLParser } from 'fast-xml-parser'
 import cron from 'node-cron'
 import type { RssSourcesRepository } from '../repositories/rss-sources.repository.ts'
 import type { WorkerJobsRepository } from '../repositories/worker-jobs.repository.ts'
-import { isAllowedTopic } from '../services/topic-classifier.ts'
+import { feedCategoryVerdict, isAllowedTopic } from '../services/topic-classifier.ts'
 
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' })
 
@@ -153,6 +153,7 @@ export class RssFeedWorker {
           let queued = 0
           let skipped = 0
           let failed = 0
+          let offTarget = 0
 
           for (const item of items) {
             const raw = extractUrl(item)
@@ -160,6 +161,12 @@ export class RssFeedWorker {
             const rssCategories = extractCategories(item)
             const topicText = `${extractText(item.title)} ${extractText(item.description ?? item.summary)}`
             if (!isAllowedTopic(topicText, rssCategories)) continue
+            // The feed filed this under a category nobody researches — skip the
+            // scrape, the article row and the research job entirely.
+            if (feedCategoryVerdict(rssCategories) === 'off-target') {
+              offTarget++
+              continue
+            }
             const url = normalizeUrl(raw)
             const hash = hashUrl(url)
             try {
@@ -172,7 +179,7 @@ export class RssFeedWorker {
             }
           }
 
-          console.log(`[RssFeedWorker] ${source.name}: ${items.length} items — ${queued} queued, ${skipped} skipped${failed > 0 ? `, ${failed} failed` : ''}`)
+          console.log(`[RssFeedWorker] ${source.name}: ${items.length} items — ${queued} queued, ${skipped} skipped${offTarget > 0 ? `, ${offTarget} off-target` : ''}${failed > 0 ? `, ${failed} failed` : ''}`)
           totalQueued += queued
           totalSkipped += skipped
         } catch (err) {

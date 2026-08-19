@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { classifyTopic, isAllowedTopic } from './topic-classifier.ts'
+import { classifyTopic, feedCategoryVerdict, isAllowedTopic } from './topic-classifier.ts'
 
 describe('classifyTopic', () => {
   it('returns category from RSS alias when provided', () => {
@@ -40,5 +40,40 @@ describe('isAllowedTopic', () => {
 
   it('returns false for off-topic text', () => {
     assert.equal(isAllowedTopic('best pizza recipes'), false)
+  })
+})
+
+describe('feedCategoryVerdict', () => {
+  it('accepts a category the research service researches', () => {
+    assert.equal(feedCategoryVerdict(['Politics']), 'target')
+    assert.equal(feedCategoryVerdict(['world']), 'target')
+  })
+
+  it('rejects a category nobody researches', () => {
+    assert.equal(feedCategoryVerdict(['Science']), 'off-target')
+    assert.equal(feedCategoryVerdict(['health']), 'off-target')
+    assert.equal(feedCategoryVerdict(['markets']), 'off-target')
+  })
+
+  it('keeps an item filed under both a target and a non-target category', () => {
+    assert.equal(feedCategoryVerdict(['technology', 'politics']), 'target')
+  })
+
+  it('is unknown when the feed says nothing', () => {
+    assert.equal(feedCategoryVerdict(), 'unknown')
+    assert.equal(feedCategoryVerdict([]), 'unknown')
+  })
+
+  it('is unknown for the junk values most feeds actually publish', () => {
+    // Measured across 3043 live items: "news", "top", "storytype:standard" and
+    // similar make up the majority of category values.
+    assert.equal(feedCategoryVerdict(['news']), 'unknown')
+    assert.equal(feedCategoryVerdict(['top']), 'unknown')
+    assert.equal(feedCategoryVerdict(['structure:apple-news-free']), 'unknown')
+    assert.equal(feedCategoryVerdict(['donald trump']), 'unknown')
+  })
+
+  it('never rejects on an unrecognised value alone', () => {
+    assert.equal(feedCategoryVerdict(['news', 'top', 'gear']), 'unknown')
   })
 })
