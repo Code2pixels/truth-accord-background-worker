@@ -1,3 +1,9 @@
+// The categories the research service actually researches. Anything else is
+// rejected downstream, so an item a feed explicitly files under one of the
+// others is not worth scraping. Keep in step with RESEARCH_CATEGORIES in
+// truth-accord-research.
+export const RESEARCH_TARGET_CATEGORIES = new Set(['politics', 'world', 'law'])
+
 export const TOPIC_KEYWORDS: Record<string, string[]> = {
   politics: [
     'congress', 'senate', 'parliament', 'election', 'president', 'government',
