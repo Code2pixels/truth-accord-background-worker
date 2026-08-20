@@ -3,6 +3,7 @@ import { XMLParser } from 'fast-xml-parser'
 import cron from 'node-cron'
 import type { RssSourcesRepository } from '../repositories/rss-sources.repository.ts'
 import type { WorkerJobsRepository } from '../repositories/worker-jobs.repository.ts'
+import { ScopeGateService } from '../services/scope-gate.service.ts'
 import { feedCategoryVerdict, isAllowedTopic } from '../services/topic-classifier.ts'
 import { bad, dim, ok, tag, value, warn } from '../utils/log.util.ts'
 
@@ -124,6 +125,7 @@ export class RssFeedWorker {
   constructor(
     private readonly rssSourcesRepo: RssSourcesRepository,
     private readonly workerJobsRepo: WorkerJobsRepository,
+    private readonly scopeGate: ScopeGateService = new ScopeGateService(),
   ) {}
 
   schedule(): void {
@@ -156,6 +158,7 @@ export class RssFeedWorker {
           let failed = 0
           let offTarget = 0
 
+          const candidates: Array<{ url: string; topicText: string }> = []
           for (const item of items) {
             const raw = extractUrl(item)
             if (!raw) continue
@@ -168,15 +171,27 @@ export class RssFeedWorker {
               offTarget++
               continue
             }
-            const url = normalizeUrl(raw)
-            const hash = hashUrl(url)
+            candidates.push({ url: normalizeUrl(raw), topicText })
+          }
+
+          // One embedding call for the whole feed decides what is worth
+          // scraping. Two thirds of what this worker used to queue was rejected
+          // downstream for being off topic, after paying for the scrape.
+          const inScope = await this.scopeGate.keep(candidates.map((c) => c.topicText))
+
+          for (const [i, candidate] of candidates.entries()) {
+            if (inScope[i] === false) {
+              offTarget++
+              continue
+            }
+            const hash = hashUrl(candidate.url)
             try {
-              const inserted = await this.workerJobsRepo.createIfNew(url, hash)
+              const inserted = await this.workerJobsRepo.createIfNew(candidate.url, hash)
               if (inserted) queued++
               else skipped++
             } catch (err) {
               failed++
-              console.warn(`${tag('RssFeedWorker')} ${source.name}: ${warn(`failed to queue ${url}`)}: ${err instanceof Error ? err.message : err}`)
+              console.warn(`${tag('RssFeedWorker')} ${source.name}: ${warn(`failed to queue ${candidate.url}`)}: ${err instanceof Error ? err.message : err}`)
             }
           }
 

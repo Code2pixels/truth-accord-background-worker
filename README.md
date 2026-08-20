@@ -26,6 +26,10 @@ Optional tuning variables:
 | `QUEUE_CONCURRENCY` | `3` | Max jobs processed in parallel |
 | `MAX_RETRIES` | `3` | Max attempts before a job is marked dead |
 | `SCRAPER_TIMEOUT_MS` | `30000` | HTTP/browser fetch timeout |
+| `SCOPE_GATE_ENABLED` | `true` | Skip feed items outside politics/world/law before queueing |
+| `SCOPE_GATE_MARGIN` | `0.02` | How clearly off-topic must win; near-ties are queued |
+| `OLLAMA_BASE_URL` | — | Embedding host for the scope gate |
+| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model for the scope gate |
 | `PLAYWRIGHT_HEADLESS` | `true` | Set to `false` to show browser window |
 
 ## Running
