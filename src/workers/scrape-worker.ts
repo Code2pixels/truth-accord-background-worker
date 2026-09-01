@@ -6,6 +6,7 @@ import type { ArticleContentRepository } from '../repositories/article-content.r
 import type { SourcesRepository } from '../repositories/sources.repository.ts'
 import type { ScrapeJob } from '../types.ts'
 import { bad, dim, jobId, ok, step, tag, value, warn } from '../utils/log.util.ts'
+import { isVideoArticle } from '../services/media-filter.ts'
 
 export class ScrapeWorker {
   private isRunning = false
@@ -97,6 +98,15 @@ export class ScrapeWorker {
         }
       } else {
         console.log(`${prefix} ${step(2, 4)} No paywall detected`)
+      }
+
+      // A video package reaches the same dead end every time: no body to
+      // classify, nothing to corroborate. Stop before the article row exists.
+      if (isVideoArticle(scraped.title)) {
+        console.log(`${prefix}       ${dim(`skipping video package: ${scraped.title ?? ''}`)}`)
+        await this.workerJobsRepo.updateStatus(id, 'completed')
+        console.log(`${prefix} ${dim('── SKIPPED (video)')} ${dim(`[${Date.now() - t0}ms]`)}`)
+        return
       }
 
       // Step 3: Ensure source domain is tracked

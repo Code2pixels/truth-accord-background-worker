@@ -49,6 +49,23 @@ describe('ScrapeWorker.processJob', () => {
     assert.equal(ScrapeWorker.length, 6)
   })
 
+  it('never inserts a video package', async () => {
+    const { worker, calls } = makeWorker({
+      scraper: {
+        scrape: async () => ({
+          url: 'https://news.example.com/a', title: 'Video: Marine One suffers a failure',
+          content: 'body', author: null, publishedAt: null, metaDescription: 'd',
+          wordCount: 12, isArchived: false, snapshotTimestamp: null, paywallDetected: false,
+          links: [],
+        }),
+      },
+    })
+    await (worker as unknown as { processJob(j: ScrapeJob): Promise<void> }).processJob(job)
+    assert.ok(!calls.some((c) => c.startsWith('upsert')), 'no article row for a video')
+    assert.ok(!calls.some((c) => c.startsWith('research')), 'no research job for a video')
+    assert.deepEqual(calls, ['job:completed'])
+  })
+
   it('fails the job with retry when scraping throws', async () => {
     const { worker, calls } = makeWorker({ scraper: { scrape: async () => { throw new Error('boom') } } })
     await (worker as unknown as { processJob(j: ScrapeJob): Promise<void> }).processJob(job)

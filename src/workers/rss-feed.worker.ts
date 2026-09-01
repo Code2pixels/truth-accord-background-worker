@@ -4,6 +4,7 @@ import cron from 'node-cron'
 import type { RssSourcesRepository } from '../repositories/rss-sources.repository.ts'
 import type { WorkerJobsRepository } from '../repositories/worker-jobs.repository.ts'
 import { ScopeGateService } from '../services/scope-gate.service.ts'
+import { isVideoArticle } from '../services/media-filter.ts'
 import { feedCategoryVerdict, isAllowedTopic } from '../services/topic-classifier.ts'
 import { bad, dim, ok, tag, value, warn } from '../utils/log.util.ts'
 
@@ -163,7 +164,13 @@ export class RssFeedWorker {
             const raw = extractUrl(item)
             if (!raw) continue
             const rssCategories = extractCategories(item)
-            const topicText = `${extractText(item.title)} ${extractText(item.description ?? item.summary)}`
+            const itemTitle = extractText(item.title)
+            // A video package has no body to classify and nothing to corroborate.
+            if (isVideoArticle(itemTitle)) {
+              offTarget++
+              continue
+            }
+            const topicText = `${itemTitle} ${extractText(item.description ?? item.summary)}`
             if (!isAllowedTopic(topicText, rssCategories)) continue
             // The feed filed this under a category nobody researches — skip the
             // scrape, the article row and the research job entirely.
