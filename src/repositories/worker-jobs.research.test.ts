@@ -14,7 +14,7 @@ describe('createResearchJob', () => {
 
     assert.equal(created, true)
     assert.match(calls[0]!.sql, /research_article/)
-    const payload = JSON.parse(String(calls[0]!.params[0]))
+    const payload = JSON.parse(String(calls[0]!.params[0])) as Record<string, unknown>
     assert.equal(payload.article_id, 'article-1')
     assert.equal(payload.url, 'https://x.com/a')
     assert.equal(payload.search_term, 'climate')

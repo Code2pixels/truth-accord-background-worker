@@ -45,7 +45,7 @@ export class WaybackRecheckWorker {
           }
           await this.workerJobsRepo.markWaybackRecheckQueued(id)
         } catch (err) {
-          console.warn(`${tag('WaybackRecheck')} ${warn(`Recheck failed for ${url}`)}: ${err instanceof Error ? err.message : err}`)
+          console.warn(`${tag('WaybackRecheck')} ${warn(`Recheck failed for ${url}`)}: ${err instanceof Error ? err.message : String(err)}`)
           await this.workerJobsRepo.markWaybackRecheckQueued(id)
         }
       }

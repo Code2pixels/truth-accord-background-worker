@@ -15,7 +15,9 @@ import { RssFeedWorker } from './workers/rss-feed.worker.ts'
 import { RssSourcesRepository } from './repositories/rss-sources.repository.ts'
 import { bad, ok, tag, warn } from './utils/log.util.ts'
 
-async function main(): Promise<void> {
+// Wiring only — every worker below starts its own loop or cron and owns its
+// errors from there, so there is nothing here to await.
+function main(): void {
   if (!process.env['DATABASE_URL']) {
     console.error(bad('DATABASE_URL environment variable is required'))
     process.exit(1)
@@ -104,7 +106,9 @@ async function main(): Promise<void> {
   })
 }
 
-main().catch((err: unknown) => {
+try {
+  main()
+} catch (err: unknown) {
   console.error(`${tag('main')} ${bad('Fatal error:')}`, err)
   process.exit(1)
-})
+}

@@ -206,13 +206,18 @@ export class ReferenceSitesCrawlService {
       const parsed = this.parser.parse(xml) as Record<string, unknown>
       const items: { title: string; description: string; url: string }[] = []
 
+      // Only primitives carry text. Anything else (a nested element, an array of
+      // them) has no sensible string form, so it reads as absent rather than
+      // stringifying to '[object Object]'.
+      const asText = (v: unknown): string =>
+        typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : ''
+
       const one = (obj: unknown, tag: string): string => {
-        if (typeof obj !== 'object' || obj === null || !(tag in (obj as Record<string, unknown>))) return ''
+        if (typeof obj !== 'object' || obj === null || !(tag in obj)) return ''
         const v = (obj as Record<string, unknown>)[tag]
         if (typeof v === 'string') return v
-        if (typeof v === 'object' && v !== null && '#text' in (v as Record<string, unknown>))
-          return String((v as Record<string, unknown>)['#text'] ?? '')
-        return String(v ?? '')
+        if (typeof v === 'object' && v !== null && '#text' in v) return asText(v['#text'])
+        return asText(v)
       }
 
       const linkFromAtom = (obj: unknown): string => {
@@ -220,16 +225,17 @@ export class ReferenceSitesCrawlService {
         const hrefFrom = (l: unknown): string => {
           if (!l || typeof l !== 'object') return ''
           const attrs = (l as Record<string, unknown>)['@_']
-          if (attrs && typeof attrs === 'object' && 'href' in (attrs as object))
+          if (attrs && typeof attrs === 'object' && 'href' in attrs)
             return String((attrs as Record<string, string>).href ?? '')
           return ''
         }
         if (Array.isArray(link)) {
-          const alt = link.find((l: unknown) => {
+          const links = link as unknown[]
+          const alt = links.find((l: unknown) => {
             const attrs = (l as Record<string, unknown>)['@_']
             return attrs && typeof attrs === 'object' && (attrs as Record<string, string>).rel !== 'self'
           })
-          return hrefFrom(alt ?? link[0]) || ''
+          return hrefFrom(alt ?? links[0]) || ''
         }
         return hrefFrom(link) || ''
       }

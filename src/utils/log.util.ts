@@ -68,7 +68,7 @@ const LEVEL_COLORS: Record<string, ColorCode> = {
 }
 
 /** Colour a message by severity. */
-export function level(kind: keyof typeof LEVEL_COLORS | string, text: string): string {
+export function level(kind: string, text: string): string {
   return colorize(text, LEVEL_COLORS[kind] ?? COLORS.blue)
 }
 

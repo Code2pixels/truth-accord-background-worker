@@ -93,7 +93,7 @@ Content (excerpt): ${content.slice(0, 500)}`
       const category = categoryRaw && (CATEGORIES as readonly string[]).includes(categoryRaw) ? categoryRaw : null
       return { category, biasScore: clamp(parsed.biasScore), languageScore: clamp(parsed.languageScore) }
     } catch (err) {
-      console.warn(`[OllamaService] scoreContentAndClassify parse error: ${err instanceof Error ? err.message : err}`)
+      console.warn(`[OllamaService] scoreContentAndClassify parse error: ${err instanceof Error ? err.message : String(err)}`)
       return { category: null, biasScore: null, languageScore: null }
     }
   }
@@ -201,7 +201,7 @@ Only include candidates that report the same specific event. Omit anything that 
       }
       return results
     } catch (err) {
-      console.warn(`[OllamaService] scoreTopCandidates failed: ${err instanceof Error ? err.message : err}`)
+      console.warn(`[OllamaService] scoreTopCandidates failed: ${err instanceof Error ? err.message : String(err)}`)
       return null
     }
   }
@@ -292,7 +292,7 @@ Only include candidates that report the same specific event. Omit anything that 
       }
       return data.embeddings as number[][]
     } catch (err) {
-      console.warn(`[OllamaService] embed failed: ${err instanceof Error ? err.message : err}`)
+      console.warn(`[OllamaService] embed failed: ${err instanceof Error ? err.message : String(err)}`)
       return null
     }
   }

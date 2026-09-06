@@ -198,7 +198,7 @@ export class RssFeedWorker {
               else skipped++
             } catch (err) {
               failed++
-              console.warn(`${tag('RssFeedWorker')} ${source.name}: ${warn(`failed to queue ${candidate.url}`)}: ${err instanceof Error ? err.message : err}`)
+              console.warn(`${tag('RssFeedWorker')} ${source.name}: ${warn(`failed to queue ${candidate.url}`)}: ${err instanceof Error ? err.message : String(err)}`)
             }
           }
 
@@ -206,7 +206,7 @@ export class RssFeedWorker {
           totalQueued += queued
           totalSkipped += skipped
         } catch (err) {
-          console.error(`${tag('RssFeedWorker')} ${bad(`Failed to poll ${source.name}`)} (${source.rss_url}): ${err instanceof Error ? err.message : err}`)
+          console.error(`${tag('RssFeedWorker')} ${bad(`Failed to poll ${source.name}`)} (${source.rss_url}): ${err instanceof Error ? err.message : String(err)}`)
         }
       }))
     }

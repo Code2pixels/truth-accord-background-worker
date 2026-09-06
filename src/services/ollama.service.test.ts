@@ -142,11 +142,11 @@ describe('OllamaService.findSimilarArticles', () => {
 
     const result = await service.findSimilarArticles('Senate bill passes', 'Congress acts', '', candidates)
     assert.ok(result !== null)
-    assert.equal(result!.length, 2)
-    assert.equal(result![0]!.url, 'https://bbc.com/1')
-    assert.ok(Math.abs(result![0]!.similarityScore - 0.9) < 0.001)
-    assert.equal(result![1]!.url, 'https://reuters.com/3')
-    assert.ok(Math.abs(result![1]!.similarityScore - 0.6) < 0.001)
+    assert.equal(result.length, 2)
+    assert.equal(result[0]!.url, 'https://bbc.com/1')
+    assert.ok(Math.abs(result[0]!.similarityScore - 0.9) < 0.001)
+    assert.equal(result[1]!.url, 'https://reuters.com/3')
+    assert.ok(Math.abs(result[1]!.similarityScore - 0.6) < 0.001)
   })
 
   it('returns empty array without calling fetch when candidates list is empty', async (t) => {
@@ -155,7 +155,7 @@ describe('OllamaService.findSimilarArticles', () => {
 
     const result = await service.findSimilarArticles('Title', 'Meta', '', [])
     assert.ok(result !== null)
-    assert.equal(result!.length, 0)
+    assert.equal(result.length, 0)
     assert.equal(fetchMock.mock.calls.length, 0)
   })
 
@@ -165,7 +165,7 @@ describe('OllamaService.findSimilarArticles', () => {
 
     const result = await service.findSimilarArticles('Title', 'Meta', '', candidates)
     assert.ok(result !== null)
-    assert.equal(result![0]!.similarityScore, 1)
+    assert.equal(result[0]!.similarityScore, 1)
   })
 
   it('ignores out-of-range indices from gemma generate', async (t) => {
@@ -174,7 +174,7 @@ describe('OllamaService.findSimilarArticles', () => {
 
     const result = await service.findSimilarArticles('Title', 'Meta', '', candidates)
     assert.ok(result !== null)
-    assert.equal(result!.length, 0)
+    assert.equal(result.length, 0)
   })
 
   it('Tier 2: non-array generate response falls back to cosine scores', async (t) => {
@@ -183,10 +183,10 @@ describe('OllamaService.findSimilarArticles', () => {
 
     const result = await service.findSimilarArticles('Title', 'Meta', '', candidates)
     assert.ok(result !== null)
-    assert.equal(result!.length, 3)
+    assert.equal(result.length, 3)
     // top item is c1 (bbc) with cosine ~1.0
-    assert.equal(result![0]!.url, 'https://bbc.com/1')
-    assert.ok(Math.abs(result![0]!.similarityScore - 1) < 0.001)
+    assert.equal(result[0]!.url, 'https://bbc.com/1')
+    assert.ok(Math.abs(result[0]!.similarityScore - 1) < 0.001)
   })
 
   it('Tier 2: generate HTTP failure falls back to cosine scores', async (t) => {
@@ -195,10 +195,10 @@ describe('OllamaService.findSimilarArticles', () => {
 
     const result = await service.findSimilarArticles('Title', 'Meta', '', candidates)
     assert.ok(result !== null)
-    assert.equal(result!.length, 3)
+    assert.equal(result.length, 3)
     // top item is c1 (bbc) with cosine ~1.0
-    assert.equal(result![0]!.url, 'https://bbc.com/1')
-    assert.ok(Math.abs(result![0]!.similarityScore - 1) < 0.001)
+    assert.equal(result[0]!.url, 'https://bbc.com/1')
+    assert.ok(Math.abs(result[0]!.similarityScore - 1) < 0.001)
   })
 
   it('Tier 3: embed failure returns null for heuristic fallback', async (t) => {
@@ -228,7 +228,7 @@ describe('OllamaService.findSimilarArticles', () => {
 
       const genCall = fetchMock.mock.calls.find((c) => ((c.arguments as unknown[])[0] as string).includes('/api/generate'))
       assert.ok(genCall)
-      const body = JSON.parse(((genCall!.arguments as unknown[])[1] as { body: string }).body) as { prompt: string }
+      const body = JSON.parse(((genCall.arguments as unknown[])[1] as { body: string }).body) as { prompt: string }
       assert.ok(body.prompt.includes('1. ['))
       assert.ok(!body.prompt.includes('2. ['))
     } finally {
@@ -245,7 +245,7 @@ describe('OllamaService.findSimilarArticles', () => {
 
     const genCall = fetchMock.mock.calls.find((c) => ((c.arguments as unknown[])[0] as string).includes('/api/generate'))
     assert.ok(genCall)
-    const body = JSON.parse(((genCall!.arguments as unknown[])[1] as { body: string }).body) as { format?: string; options?: { num_ctx?: number } }
+    const body = JSON.parse(((genCall.arguments as unknown[])[1] as { body: string }).body) as { format?: string; options?: { num_ctx?: number } }
     assert.equal(body.format, 'json')
     // No num_ctx override: keeps gemma at its default context so it isn't reloaded
     // between the small classify/score calls and this one (a reload caused timeouts).
